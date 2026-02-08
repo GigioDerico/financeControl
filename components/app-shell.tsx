@@ -72,7 +72,7 @@ export function AppShell() {
 
       {/* Sidebar (Desktop) */}
       <aside className="fixed bottom-0 left-0 top-0 z-50 hidden w-64 flex-col border-r bg-card p-6 md:flex">
-        <div className="mb-8 flex items-center gap-2 px-2">
+        <div className="mb-14 flex items-center gap-2 px-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
             $
           </div>
@@ -126,14 +126,6 @@ export function AppShell() {
           </div>
 
           <div className="flex items-center gap-4 ml-auto w-full md:w-auto justify-end">
-            {/* Mobile Logout Button (Visible only on mobile header) */}
-            <button
-              onClick={handleLogout}
-              className="md:hidden flex items-center gap-1 text-xs text-red-500 font-medium mr-2"
-            >
-              <LogOut className="h-3 w-3" />
-              Sair
-            </button>
 
             {/* Perfil Filter */}
             <div className="flex items-center gap-2 rounded-lg bg-secondary p-1">
@@ -144,8 +136,12 @@ export function AppShell() {
                   className={cn(
                     "rounded-md px-3 py-1 text-sm font-medium transition-colors",
                     perfil === p
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
+                      ? p === "pessoal"
+                        ? "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700"
+                        : p === "empresa"
+                          ? "bg-blue-600 text-white shadow-sm hover:bg-blue-700"
+                          : "bg-slate-800 text-white shadow-sm hover:bg-slate-900"
+                      : "text-muted-foreground hover:text-foreground hover:bg-background/50"
                   )}
                 >
                   {p === "todas" ? "Todas" : p.charAt(0).toUpperCase() + p.slice(1)}
@@ -156,7 +152,7 @@ export function AppShell() {
         </header>
 
         {/* View Content */}
-        <div className="container py-6">
+        <div className="container py-10 px-8">
           {activeTab === "dashboard" && <DashboardView perfil={perfil} />}
           {activeTab === "transacoes" && (
             <TransacoesView

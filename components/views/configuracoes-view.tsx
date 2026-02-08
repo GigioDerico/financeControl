@@ -1,12 +1,14 @@
-"use client"
-
 import { useState } from "react"
-import { Plus, Trash2, Pencil, Check, X } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { createClient } from "@/lib/supabase/client"
+import { Plus, Trash2, Pencil, Check, X, LogOut } from "lucide-react"
 import { useCategorias, useConfigUsuario, useContas, useCartoes } from "@/hooks/use-financeiro"
 import type { TipoTransacao } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 export function ConfiguracoesView() {
+  const router = useRouter()
+  const supabase = createClient()
   const { categorias, criar, atualizar, remover } = useCategorias()
   const { config, salvar } = useConfigUsuario()
   const { contas, remover: removerConta } = useContas()
@@ -43,8 +45,13 @@ export function ConfiguracoesView() {
     salvar({ nomeUsuario: nomeUsuario.trim() })
   }
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push("/login")
+  }
+
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-8 pb-20 md:pb-0">
       <h2 className="text-lg font-bold text-foreground">Configuracoes</h2>
 
       {/* User profile section */}
@@ -260,111 +267,21 @@ export function ConfiguracoesView() {
         </div>
       </section>
 
-      {/* Accounts management */}
-      <section className="rounded-xl border bg-card p-5">
-        <h3 className="mb-4 text-sm font-semibold text-card-foreground">
-          Contas Bancarias
-        </h3>
-        {contas.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">
-            Nenhuma conta cadastrada.
-          </p>
-        ) : (
-          <div className="flex flex-col gap-1">
-            {contas.map((conta) => (
-              <div
-                key={conta.id}
-                className="flex items-center justify-between rounded-lg px-3 py-2.5 transition-colors hover:bg-secondary"
-              >
-                <div className="flex items-center gap-3">
-                  <span
-                    className={cn(
-                      "inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium uppercase",
-                      conta.tipo === "pessoal"
-                        ? "bg-primary/10 text-primary"
-                        : "bg-accent/10 text-accent"
-                    )}
-                  >
-                    {conta.tipo}
-                  </span>
-                  <span className="text-sm text-card-foreground">{conta.nome}</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => removerConta(conta.id)}
-                  className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                  aria-label={`Remover conta ${conta.nome}`}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Cards management */}
-      <section className="rounded-xl border bg-card p-5">
-        <h3 className="mb-4 text-sm font-semibold text-card-foreground">
-          Cartoes de Credito
-        </h3>
-        {cartoes.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">
-            Nenhum cartao cadastrado.
-          </p>
-        ) : (
-          <div className="flex flex-col gap-1">
-            {cartoes.map((cartao) => (
-              <div
-                key={cartao.id}
-                className="flex items-center justify-between rounded-lg px-3 py-2.5 transition-colors hover:bg-secondary"
-              >
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-sm text-card-foreground">
-                    {cartao.nome}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {cartao.banco} &middot; Fecha dia {cartao.fechamento} &middot; Vence dia{" "}
-                    {cartao.vencimento}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => removerCartao(cartao.id)}
-                  className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                  aria-label={`Remover cartao ${cartao.nome}`}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Danger zone */}
-      <section className="rounded-xl border border-destructive/30 bg-card p-5">
+      {/* Account / Session Management */}
+      <section className="rounded-xl border border-destructive/20 bg-destructive/5 p-5">
         <h3 className="mb-2 text-sm font-semibold text-destructive">
-          Zona de Perigo
+          Conta e Sessão
         </h3>
         <p className="mb-4 text-xs text-muted-foreground">
-          Limpar todos os dados armazenados. Esta acao nao pode ser desfeita.
+          Gerencie o acesso à sua conta.
         </p>
         <button
           type="button"
-          onClick={() => {
-            if (
-              window.confirm(
-                "Tem certeza que deseja apagar todos os dados? Esta acao nao pode ser desfeita."
-              )
-            ) {
-              localStorage.clear()
-              window.location.reload()
-            }
-          }}
-          className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/20"
+          onClick={handleLogout}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-destructive/30 bg-white px-4 py-3 text-sm font-bold text-destructive shadow-sm transition-all hover:bg-destructive hover:text-white active:scale-95"
         >
-          Limpar todos os dados
+          <LogOut className="h-4 w-4" />
+          Sair da Conta
         </button>
       </section>
     </div>
