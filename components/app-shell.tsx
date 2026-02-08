@@ -1,8 +1,8 @@
 "use client"
 
-import React from "react"
-
-import { useState } from "react"
+import React, { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { createClient } from "@/lib/supabase/client"
 import {
   LayoutDashboard,
   ArrowLeftRight,
@@ -10,9 +10,10 @@ import {
   BarChart3,
   Settings,
   Plus,
+  LogOut,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { Perfil } from "@/lib/types"
+// import type { Perfil } from "@/lib/types"
 import { DashboardView } from "@/components/views/dashboard-view"
 import { TransacoesView } from "@/components/views/transacoes-view"
 import { CartoesView } from "@/components/views/cartoes-view"
@@ -21,55 +22,141 @@ import { ConfiguracoesView } from "@/components/views/configuracoes-view"
 import { NovaTransacaoDialog } from "@/components/dialogs/nova-transacao-dialog"
 
 type Tab = "dashboard" | "transacoes" | "cartoes" | "graficos" | "configuracoes"
+type Perfil = "pessoal" | "empresa" | "todas"
 
-const tabs: { key: Tab; label: string; icon: React.ElementType }[] = [
-  { key: "dashboard", label: "Inicio", icon: LayoutDashboard },
-  { key: "transacoes", label: "Transacoes", icon: ArrowLeftRight },
-  { key: "cartoes", label: "Cartoes", icon: CreditCard },
-  { key: "graficos", label: "Graficos", icon: BarChart3 },
+const tabs = [
+  { key: "dashboard", label: "Início", icon: LayoutDashboard },
+  { key: "transacoes", label: "Transações", icon: ArrowLeftRight },
+  { key: "cartoes", label: "Cartões", icon: CreditCard },
+  { key: "graficos", label: "Gráficos", icon: BarChart3 },
   { key: "configuracoes", label: "Config", icon: Settings },
-]
+] as const
 
 export function AppShell() {
+  const router = useRouter()
+  const supabase = createClient()
+
   const [activeTab, setActiveTab] = useState<Tab>("dashboard")
-  const [perfil, setPerfil] = useState<Perfil | "todas">("todas")
+  const [perfil, setPerfil] = useState<Perfil>("todas")
   const [showNovaTransacao, setShowNovaTransacao] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  // Auth Guard
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.push("/login")
+      } else {
+        setLoading(false)
+      }
+    }
+    checkAuth()
+  }, [router, supabase])
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push("/login")
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    )
+  }
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b bg-card px-4 py-3">
-        <div className="mx-auto flex max-w-5xl items-center justify-between">
-          <h1 className="text-lg font-bold text-foreground tracking-tight">
-            FinControl
-          </h1>
-          <div className="flex items-center gap-1 rounded-lg bg-secondary p-1">
-            {(["todas", "pessoal", "empresa"] as const).map((p) => (
+    <div className="flex min-h-screen flex-col bg-background pb-16 md:flex-row md:pb-0">
+
+      {/* Sidebar (Desktop) */}
+      <aside className="fixed bottom-0 left-0 top-0 z-50 hidden w-64 flex-col border-r bg-card p-6 md:flex">
+        <div className="mb-8 flex items-center gap-2 px-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
+            $
+          </div>
+          <span className="text-xl font-bold tracking-tight">FinControl</span>
+        </div>
+
+        <nav className="flex-1 space-y-1">
+          {tabs.map((tab) => {
+            const Icon = tab.icon
+            const isActive = activeTab === tab.key
+            return (
               <button
-                key={p}
-                type="button"
-                onClick={() => setPerfil(p)}
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
                 className={cn(
-                  "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                  perfil === p
-                    ? p === "pessoal"
-                      ? "bg-primary text-primary-foreground"
-                      : p === "empresa"
-                        ? "bg-accent text-accent-foreground"
-                        : "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
+                  "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  isActive
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                 )}
               >
-                {p === "todas" ? "Todas" : p === "pessoal" ? "Pessoal" : "Empresa"}
+                <Icon className="h-4 w-4" />
+                {tab.label}
               </button>
-            ))}
-          </div>
-        </div>
-      </header>
+            )
+          })}
+        </nav>
 
-      {/* Main content */}
-      <main className="flex-1 px-4 py-6">
-        <div className="mx-auto max-w-5xl">
+        <div className="border-t pt-4 mt-auto">
+          <button
+            onClick={handleLogout}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-red-500 hover:bg-red-500/10 transition-colors"
+          >
+            <LogOut className="h-4 w-4" />
+            Sair
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="flex-1 md:ml-64">
+        {/* Header */}
+        <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+
+          {/* Mobile Logo */}
+          <div className="flex items-center gap-2 md:hidden">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
+              $
+            </div>
+            <span className="font-bold tracking-tight">FinControl</span>
+          </div>
+
+          <div className="flex items-center gap-4 ml-auto w-full md:w-auto justify-end">
+            {/* Mobile Logout Button (Visible only on mobile header) */}
+            <button
+              onClick={handleLogout}
+              className="md:hidden flex items-center gap-1 text-xs text-red-500 font-medium mr-2"
+            >
+              <LogOut className="h-3 w-3" />
+              Sair
+            </button>
+
+            {/* Perfil Filter */}
+            <div className="flex items-center gap-2 rounded-lg bg-secondary p-1">
+              {(["todas", "pessoal", "empresa"] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPerfil(p)}
+                  className={cn(
+                    "rounded-md px-3 py-1 text-sm font-medium transition-colors",
+                    perfil === p
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {p === "todas" ? "Todas" : p.charAt(0).toUpperCase() + p.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </header>
+
+        {/* View Content */}
+        <div className="container py-6">
           {activeTab === "dashboard" && <DashboardView perfil={perfil} />}
           {activeTab === "transacoes" && (
             <TransacoesView
@@ -83,76 +170,36 @@ export function AppShell() {
         </div>
       </main>
 
-      {/* FAB */}
+      {/* FAB - Floating Action Button */}
       <button
-        type="button"
         onClick={() => setShowNovaTransacao(true)}
-        className="fixed bottom-24 right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 active:scale-95 md:bottom-8 md:right-8"
-        aria-label="Adicionar nova transacao"
+        className="fixed bottom-20 right-4 z-50 rounded-full bg-primary p-4 text-primary-foreground shadow-lg transition-all hover:scale-110 active:scale-95 md:bottom-8 md:right-8"
       >
         <Plus className="h-6 w-6" />
       </button>
 
-      {/* Bottom nav (mobile) */}
-      <nav className="sticky bottom-0 z-40 border-t bg-card md:hidden">
-        <div className="flex items-center justify-around py-2">
+      {/* Mobile Bottom Nav */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background/95 backdrop-blur md:hidden">
+        <div className="flex h-16 items-center justify-around">
           {tabs.map((tab) => {
             const Icon = tab.icon
             const isActive = activeTab === tab.key
             return (
               <button
                 key={tab.key}
-                type="button"
                 onClick={() => setActiveTab(tab.key)}
                 className={cn(
-                  "flex flex-col items-center gap-0.5 px-3 py-1 text-xs transition-colors",
+                  "flex flex-col items-center justify-center gap-1 px-4 text-xs font-medium transition-colors",
                   isActive ? "text-primary" : "text-muted-foreground"
                 )}
-                aria-current={isActive ? "page" : undefined}
               >
-                <Icon className="h-5 w-5" />
-                <span>{tab.label}</span>
-              </button>
-            )
-          })}
-        </div>
-      </nav>
-
-      {/* Desktop sidebar nav */}
-      <nav className="fixed left-0 top-[57px] hidden h-[calc(100vh-57px)] w-56 border-r bg-card p-4 md:block">
-        <div className="flex flex-col gap-1">
-          {tabs.map((tab) => {
-            const Icon = tab.icon
-            const isActive = activeTab === tab.key
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setActiveTab(tab.key)}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                )}
-                aria-current={isActive ? "page" : undefined}
-              >
-                <Icon className="h-5 w-5" />
+                <Icon className={cn("h-5 w-5", isActive && "fill-current")} />
                 {tab.label}
               </button>
             )
           })}
         </div>
       </nav>
-
-      {/* Adjust main content for desktop sidebar */}
-      <style>{`
-        @media (min-width: 768px) {
-          main {
-            margin-left: 14rem;
-          }
-        }
-      `}</style>
 
       <NovaTransacaoDialog
         open={showNovaTransacao}

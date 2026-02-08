@@ -3,34 +3,31 @@
 ## 1. Visao geral do app
 
 O **FinControl** e um aplicativo web para controle financeiro **pessoal** e **empresarial**.
-Ele roda inteiramente no cliente (browser) e persiste os dados em `localStorage`.
+Atualmente, ele opera com persistencia local (`localStorage`), mas esta em processo de migracao para uma arquitetura robusta com backend **Supabase**.
 
 Objetivo principal:
-- registrar receitas e despesas
-- acompanhar saldo de contas bancarias
-- controlar cartoes de credito e faturas (incluindo compras parceladas)
-- visualizar indicadores e graficos financeiros
-- organizar categorias e configuracoes basicas do usuario
+- Registrar receitas e despesas
+- Acompanhar saldo de contas bancarias
+- Controlar cartoes de credito e faturas (incluindo compras parceladas)
+- Visualizar indicadores e graficos financeiros
+- Organizar categorias e configuracoes basicas do usuario
+- **[NOVO]** Sincronizacao em nuvem e autenticacao via Supabase
 
 ## 2. Stack e tecnologias
 
-Stack principal identificada no projeto:
+Stack principal:
 - **Framework:** Next.js (`next@16.1.6`) com App Router
 - **Linguagem:** TypeScript (`strict: true`)
-- **UI:** React 19 + Tailwind CSS
-- **Componentes:** shadcn/ui + Radix UI
-- **Graficos:** Recharts
-- **Estado e cache local:** SWR (com `mutate` apos operacoes CRUD)
-- **Icones:** Lucide React
-- **Temas:** next-themes (provider existe, mas nao esta conectado no `layout` atual)
+- **UI:** React 19 + Tailwind CSS + shadcn/ui
+- **Estado Local:** SWR (com estrategia de `mutate`)
+- **Backend (Alvo):** Supabase (PostgreSQL, Auth, Edge Functions)
+- **Legado (Atual):** `localStorage` (via `lib/store.ts`)
 
 Arquivos de configuracao relevantes:
 - `package.json`
 - `tsconfig.json`
 - `next.config.mjs`
 - `tailwind.config.ts`
-- `components.json`
-- `postcss.config.mjs`
 
 ## 3. Arquitetura da aplicacao
 
@@ -38,164 +35,109 @@ Arquivos de configuracao relevantes:
 
 - `app/`: entrada do Next (layout, pagina principal, endpoint API)
 - `components/app-shell.tsx`: shell principal com navegacao
-- `components/views/*`: telas do produto
-- `components/dialogs/*`: modais de criacao (transacao, cartao, conta)
-- `hooks/use-financeiro.ts`: hooks de dominio (contas, cartoes, transacoes etc.)
-- `lib/store.ts`: camada de persistencia e regras de negocio sobre `localStorage`
+- `components/views/*`: telas do produto (Dashboard, Transacoes, Cartoes, etc.)
+- `hooks/use-financeiro.ts`: hooks de dominio (camada de abstracao dos dados)
+- `lib/store.ts`: impementacao atual de persistencia local (a ser substituda por cliente Supabase)
+- `lib/supabase/`: (Futuro) cliente e funcoes de acesso a dados
 - `lib/types.ts`: tipos e modelos de dados
-- `components/ui/*`: biblioteca de componentes base (majoritariamente shadcn/ui)
 
-### 3.2 Fluxo de dados
+### 3.2 Fluxo de dados (Hibrido/Migracao)
 
-Fluxo principal:
-1. UI chama hooks (`useTransacoes`, `useContas`, etc.)
-2. hooks usam funcoes de `lib/store.ts`
-3. `store.ts` le/escreve no `localStorage`
-4. hooks chamam `mutate` no SWR para revalidar estado em tela
+**Estado Atual (Local):**
+1. UI chama hooks (`useTransacoes`, etc.)
+2. Hooks acessam `lib/store.ts`
+3. Dados lidos/gravados em `localStorage`
 
-Nao ha backend persistente no estado atual (exceto endpoint utilitario `/api/n8n` para parse de texto).
+**Estado Futuro (Supabase):**
+1. UI chama hooks
+2. Hooks utilizam Supabase Client (`@supabase/ssr`)
+3. Autenticacao valida sessao do usuario
+4. Dados lidos/gravados no PostgreSQL remoto com RLS (Row Level Security)
 
 ## 4. Modelo de dados
 
-Definicoes em `lib/types.ts`:
+### 4.1 Tipos TypeScript (`lib/types.ts`)
 - `ContaBancaria`: id, nome, tipo (pessoal/empresa), saldo
 - `CartaoCredito`: id, nome, banco, limite, fechamento, vencimento
-- `Transacao`: tipo (receita/despesa), origem, categoria, valor, data, conta/cartao, parcelas
-- `FaturaCartao`: estrutura de fatura (status pendente/pago)
+- `Transacao`: tipo, origem, categoria, valor, data, conta/cartao, parcelas
+- `FaturaCartao`: estrutura virtual calculada
 - `Categoria`: nome e tipo
-- `ConfigUsuario`: nome, moeda, formato de data
+- `ConfigUsuario`: preferencias
 
-Chaves de armazenamento (`localStorage`) em `lib/store.ts`:
-- `fincontrol_contas`
-- `fincontrol_cartoes`
-- `fincontrol_transacoes`
-- `fincontrol_faturas`
-- `fincontrol_categorias`
-- `fincontrol_config`
+### 4.2 Esquema de Banco de Dados (Supabase/SQL)
 
-## 5. Regras de negocio implementadas
+A migracao para o Supabase utilizara as seguintes tabelas (mapeamento preliminar):
+
+- **users** (gerenciado pelo Supabase Auth)
+- **public.contas**
+  - `id` (uuid, pk)
+  - `user_id` (uuid, fk users)
+  - `nome` (text)
+  - `tipo` (text: 'pessoal' | 'empresa')
+  - `saldo` (numeric)
+- **public.cartoes**
+  - `id` (uuid, pk)
+  - `user_id` (uuid, fk users)
+  - `nome`, `banco` (text)
+  - `limite` (numeric)
+  - `dia_fechamento`, `dia_vencimento` (int)
+- **public.transacoes**
+  - `id` (uuid, pk)
+  - `user_id` (uuid, fk users)
+  - `tipo` (text: 'receita' | 'despesa')
+  - `valor` (numeric)
+  - `data` (date)
+  - `descricao` (text)
+  - `conta_id` (uuid, fk contas, nullable)
+  - `cartao_id` (uuid, fk cartoes, nullable)
+  - `parcelas_total` (int)
+  - `parcela_atual` (int)
+- **public.categorias**
+  - `id` (uuid, pk)
+  - `user_id` (uuid, fk users)
+  - `nome` (text)
+  - `tipo` (text)
+
+## 5. Regras de negocio
 
 ### 5.1 Transacoes e saldo
-- Ao criar transacao vinculada a conta, o saldo da conta e atualizado automaticamente:
-  - receita soma
-  - despesa subtrai
-- Ao remover transacao vinculada a conta, o saldo e revertido.
+- Atualizacao atomica: Ao criar transacao, o saldo da conta deve ser atualizado via *Database function* ou *Trigger* no PostgreSQL para garantir consistencia.
 
-### 5.2 Parcelamento e fatura
-- Compras com `parcelas > 1` sao distribuidas por mes em `calcularFaturas`.
-- O total da fatura considera valor integral para 1x e valor proporcional (`valor/parcelas`) para compras parceladas.
-- A view de cartoes exibe fatura atual e proxima fatura.
-
-### 5.3 Seed de dados
-- `useSeedData()` chama `seedDemoData()` na carga inicial da pagina.
-- O seed cria contas, cartoes e transacoes de exemplo **somente se ainda nao houver dados**.
+### 5.2 Parcelamento
+- O calculo de faturas (`calcularFaturas`) migrará de logica no frontend para uma View SQL ou Edge Function para performance.
 
 ## 6. Funcionalidades por tela
 
-### 6.1 Dashboard (`components/views/dashboard-view.tsx`)
-- cards de resumo: saldo total, receitas do mes, despesas do mes, faturas abertas
-- lista de contas bancarias
-- lista de transacoes recentes
-- filtro por perfil (todas/pessoal/empresa)
+(Mantem-se inalterado em relacao a UX, apenas mudando a fonte de dados)
+- **Dashboard:** Resumo financeiro
+- **Transacoes:** Listagem e filtros
+- **Cartoes:** Gestao de limite e faturas
+- **Graficos:** Analise visual
+- **Configuracoes:** Perfil e preferencias
 
-### 6.2 Transacoes (`components/views/transacoes-view.tsx`)
-- listagem de transacoes
-- busca por categoria/observacao
-- filtro por tipo (todas/receita/despesa)
-- remocao de transacoes
-- abertura do modal "Nova transacao"
+## 7. Integracoes
 
-### 6.3 Cartoes e contas (`components/views/cartoes-view.tsx`)
-- cadastro/remocao de contas bancarias
-- cadastro/remocao de cartoes
-- expansao de cada cartao para visualizar composicao da fatura
-- separacao dos totais de fatura entre pessoal e empresa
+### 7.1 Endpoint `/api/n8n`
+- Recebe JSON/Texto para processamento via IA/Automacao.
+- Devera ser protegido via API Key segura (armazenada em Vault/Env Var).
 
-### 6.4 Graficos (`components/views/graficos-view.tsx`)
-- resumo de receitas/despesas do mes
-- barras de tendencia (ultimos 6 meses)
-- pizza de despesas por categoria
-- pizza de despesas por origem (pessoal vs empresa)
+## 8. Roadmap de Migracao Supabase
 
-### 6.5 Configuracoes (`components/views/configuracoes-view.tsx`)
-- perfil do usuario (nome)
-- configuracao de moeda e formato de data
-- CRUD de categorias (receita/despesa)
-- gerenciamento rapido de contas e cartoes (remocao)
-- zona de perigo para limpar todos os dados (`localStorage.clear()`)
-
-## 7. Dialogs e UX
-
-Dialogs implementados:
-- `nova-transacao-dialog.tsx`
-- `novo-cartao-dialog.tsx`
-- `nova-conta-dialog.tsx`
-
-Detalhes importantes:
-- `NovaTransacaoDialog` permite alternar entre conta bancaria ou cartao de credito
-- para cartao, permite escolher numero de parcelas (1x a 12x)
-- layout adaptado para mobile (bottom navigation + FAB) e desktop (sidebar fixa)
-
-## 8. Endpoint de integracao (`/api/n8n`)
-
-Arquivo: `app/api/n8n/route.ts`
-
-Capacidades:
-- `POST /api/n8n`: recebe `{ "mensagem": "..." }`
-- faz parse de texto para extrair:
-  - valor
-  - categoria (por palavras-chave)
-  - cartao (quando citado)
-  - origem (pessoal/empresa)
-  - parcelas
-  - tipo (receita/despesa)
-- retorna objeto processado para consumo externo (ex.: automacoes n8n)
-
-Tambem existe `GET /api/n8n` com descricao e exemplo de payload.
+1. **Configuracao Inicial:** Criar projeto Supabase, configurar variaveis de ambiente (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`).
+2. **Modelagem:** Criar tabelas e politicas RLS (Row Level Security).
+3. **Auth:** Implementar fluxo de Login/Cadastro na UI.
+4. **Adaptacao de Hooks:** Refatorar `hooks/use-financeiro.ts` para usar Supabase Client ao inves de `store.ts`.
+5. **Migracao de Dados:** Criar script para migrar dados do `localStorage` para o Supabase no primeiro login do usuario.
 
 ## 9. Como rodar o projeto
 
-Pre-requisitos:
-- Node.js atual
-- pnpm (lockfile presente: `pnpm-lock.yaml`)
-
-Comandos principais:
 - `pnpm install`
 - `pnpm dev`
-- `pnpm build`
-- `pnpm start`
-- `pnpm lint`
-
-## 10. Observacoes tecnicas importantes
-
-1. `next.config.mjs` esta com `typescript.ignoreBuildErrors: true`.
-   Isso permite build com erros de TypeScript e pode mascarar problemas.
-
-2. Persistencia e 100% client-side (`localStorage`).
-   Nao ha autenticacao, multiusuario real, sincronizacao em nuvem ou backup nativo.
-
-3. Arquivo `styles/globals.css` existe, mas o app usa `app/globals.css` no `layout`.
-   O arquivo em `styles/` parece legado/nao utilizado no fluxo atual.
-
-4. Existe grande quantidade de componentes em `components/ui/*` (base shadcn).
-   Nem todos sao necessariamente usados pelas views atuais.
-
-5. `ConfigUsuario` salva moeda e formato de data, mas a formatacao monetaria em `formatCurrency`
-   esta fixa em `pt-BR/BRL` no estado atual.
-
-## 11. Possiveis proximos passos (evolucao)
-
-- conectar persistencia real (ex.: Supabase/PostgreSQL)
-- autenticar usuarios e separar dados por conta
-- usar `config.moeda` e `config.formatoData` na formatacao real
-- adicionar testes (unitarios para `store.ts` e integracao de views)
-- revisar `ignoreBuildErrors` para endurecer qualidade de build
-- padronizar arquivos de estilo globais (remover legado nao usado)
+- **Configurar variaveis de ambiente (.env.local) para conectar ao Supabase.**
 
 ---
 
-## 12. Resumo
+## 10. Status do Projeto
 
-O projeto esta em um estagio funcional de **MVP frontend** para controle financeiro,
-com boa cobertura de funcionalidades basicas (contas, cartoes, transacoes, graficos e configuracoes),
-arquitetura simples e rapida de iterar, e base pronta para evolucao para backend real e producao.
+- **Fase:** MVP em processo de migracao para Backend-as-a-Service (BaaS).
+- **Backend:** Supabase definido como padrao.

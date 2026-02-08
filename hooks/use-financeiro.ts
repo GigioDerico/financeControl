@@ -1,26 +1,7 @@
 "use client"
 
 import useSWR, { mutate } from "swr"
-import {
-  getContas,
-  getCartoes,
-  getTransacoes,
-  getFaturas,
-  getCategorias,
-  getConfig,
-  addConta,
-  addCartao,
-  addTransacao,
-  addCategoria,
-  deleteConta,
-  deleteCartao,
-  deleteTransacao,
-  deleteCategoria,
-  updateCategoria,
-  updateFaturaStatus,
-  updateConfig,
-  seedDemoData,
-} from "@/lib/store"
+import { createClient } from "@/lib/supabase/client"
 import type {
   ContaBancaria,
   CartaoCredito,
@@ -31,136 +12,202 @@ import type {
   Perfil,
   TipoTransacao,
 } from "@/lib/types"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useState } from "react"
 
+// Chaves de cache SWR
 const SWR_KEYS = {
-  contas: "local:contas",
-  cartoes: "local:cartoes",
-  transacoes: "local:transacoes",
-  faturas: "local:faturas",
-  categorias: "local:categorias",
-  config: "local:config",
+  contas: "supabase:contas",
+  cartoes: "supabase:cartoes",
+  transacoes: "supabase:transacoes",
+  categorias: "supabase:categorias",
+  config: "supabase:config",
 }
 
+// Cliente Supabase
+const supabase = createClient()
+
+// --- Fetchers (Mapeiam snake_case do DB para camelCase da UI) ---
+
+const fetchContas = async (): Promise<ContaBancaria[]> => {
+  const { data, error } = await supabase.from("contas").select("*").order("nome")
+  if (error) throw error
+  return data || []
+}
+
+const fetchCartoes = async (): Promise<CartaoCredito[]> => {
+  const { data, error } = await supabase.from("cartoes").select("*").order("nome")
+  if (error) throw error
+  // Mapeamento manual de colunas diferentes
+  return (data || []).map((c) => ({
+    id: c.id,
+    nome: c.nome,
+    banco: c.banco,
+    limite: c.limite,
+    fechamento: c.dia_fechamento, // DB: dia_fechamento -> UI: fechamento
+    vencimento: c.dia_vencimento, // DB: dia_vencimento -> UI: vencimento
+  }))
+}
+
+const fetchCategorias = async (): Promise<Categoria[]> => {
+  const { data, error } = await supabase.from("categorias").select("*").order("nome")
+  if (error) throw error
+  return (data || []) as Categoria[]
+}
+
+const fetchTransacoes = async (): Promise<Transacao[]> => {
+  const { data, error } = await supabase
+    .from("transacoes")
+    .select(`
+      *,
+      categorias (nome)
+    `)
+    .order("data", { ascending: false })
+
+  if (error) throw error
+
+  return (data || []).map((t) => ({
+    id: t.id,
+    tipo: t.tipo as TipoTransacao,
+    // No DB não temos coluna "origem" (pessoal/empresa) na transação, 
+    // ela deriva da conta/cartão, mas por simplicidade no MVP assumi-se que
+    // o frontend manda ou precisamos inferir. 
+    // Para manter compatibilidade com UI atual, vamos usar um valor default ou buscar da conta/cartao
+    origem: "pessoal", // TODO: Melhorar modelagem para trazer origem da conta/cartao via join
+    categoria: t.categorias?.nome || "Outros", // Join com categorias
+    valor: t.valor,
+    data: t.data,
+    contaId: t.conta_id,
+    cartaoId: t.cartao_id,
+    parcelas: t.parcelas_total,
+    parcelaAtual: t.parcela_atual,
+    observacoes: t.descricao, // DB: descricao -> UI: observacoes (mapeamento reverso)
+  }))
+}
+
+// --- Hooks ---
+
 export function useContas() {
-  const { data = [] } = useSWR<ContaBancaria[]>(SWR_KEYS.contas, getContas)
+  const { data = [], error, isLoading } = useSWR<ContaBancaria[]>(SWR_KEYS.contas, fetchContas)
 
-  const criar = useCallback(
-    (conta: Omit<ContaBancaria, "id">) => {
-      addConta(conta)
-      mutate(SWR_KEYS.contas)
-      mutate(SWR_KEYS.transacoes)
-    },
-    []
-  )
-
-  const remover = useCallback((id: string) => {
-    deleteConta(id)
-    mutate(SWR_KEYS.contas)
+  const criar = useCallback(async (conta: Omit<ContaBancaria, "id">) => {
+    const { error } = await supabase.from("contas").insert({
+      nome: conta.nome,
+      tipo: conta.tipo,
+      saldo: conta.saldo,
+    })
+    if (!error) mutate(SWR_KEYS.contas)
   }, [])
 
-  return { contas: data, criar, remover }
+  const remover = useCallback(async (id: string) => {
+    const { error } = await supabase.from("contas").delete().eq("id", id)
+    if (!error) mutate(SWR_KEYS.contas)
+  }, [])
+
+  return { contas: data, criar, remover, isLoading, error }
 }
 
 export function useCartoes() {
-  const { data = [] } = useSWR<CartaoCredito[]>(SWR_KEYS.cartoes, getCartoes)
+  const { data = [], error, isLoading } = useSWR<CartaoCredito[]>(SWR_KEYS.cartoes, fetchCartoes)
 
-  const criar = useCallback(
-    (cartao: Omit<CartaoCredito, "id">) => {
-      addCartao(cartao)
-      mutate(SWR_KEYS.cartoes)
-    },
-    []
-  )
-
-  const remover = useCallback((id: string) => {
-    deleteCartao(id)
-    mutate(SWR_KEYS.cartoes)
+  const criar = useCallback(async (cartao: Omit<CartaoCredito, "id">) => {
+    const { error } = await supabase.from("cartoes").insert({
+      nome: cartao.nome,
+      banco: cartao.banco,
+      limite: cartao.limite,
+      dia_fechamento: cartao.fechamento,
+      dia_vencimento: cartao.vencimento,
+    })
+    if (!error) mutate(SWR_KEYS.cartoes)
   }, [])
 
-  return { cartoes: data, criar, remover }
+  const remover = useCallback(async (id: string) => {
+    const { error } = await supabase.from("cartoes").delete().eq("id", id)
+    if (!error) mutate(SWR_KEYS.cartoes)
+  }, [])
+
+  return { cartoes: data, criar, remover, isLoading, error }
 }
 
 export function useTransacoes(filtroOrigem?: Perfil | "todas") {
-  const { data = [] } = useSWR<Transacao[]>(SWR_KEYS.transacoes, getTransacoes)
+  const { data = [], error, isLoading } = useSWR<Transacao[]>(SWR_KEYS.transacoes, fetchTransacoes)
 
+  // Filtragem no cliente por enquanto (pode ser movida para query no futuro)
   const filtradas =
     !filtroOrigem || filtroOrigem === "todas"
       ? data
       : data.filter((t) => t.origem === filtroOrigem)
 
-  const criar = useCallback(
-    (transacao: Omit<Transacao, "id">) => {
-      addTransacao(transacao)
-      mutate(SWR_KEYS.transacoes)
-      mutate(SWR_KEYS.contas)
-    },
-    []
-  )
+  const criar = useCallback(async (transacao: Omit<Transacao, "id">) => {
+    // Buscar ID da categoria pelo nome (gambiarra temp, ideal é UI passar ID)
+    const { data: cats } = await supabase.from("categorias").select("id").eq("nome", transacao.categoria).single()
 
-  const remover = useCallback((id: string) => {
-    deleteTransacao(id)
-    mutate(SWR_KEYS.transacoes)
-    mutate(SWR_KEYS.contas)
+    // Preparar payload snake_case
+    const payload = {
+      descricao: transacao.observacoes || "Sem descrição",
+      valor: transacao.valor,
+      tipo: transacao.tipo,
+      data: transacao.data,
+      conta_id: transacao.contaId || null,
+      cartao_id: transacao.cartaoId || null,
+      categoria_id: cats?.id || null, // Se não achar ID, vai null
+      parcelas_total: transacao.parcelas || 1,
+      parcela_atual: transacao.parcelaAtual || 1,
+      efetivado: true // Por padrão efetivado
+    }
+
+    const { error } = await supabase.from("transacoes").insert(payload)
+
+    if (!error) {
+      mutate(SWR_KEYS.transacoes)
+      mutate(SWR_KEYS.contas) // Saldo atualiza via trigger, precisamos recarregar contas
+    }
   }, [])
 
-  return { transacoes: filtradas, todas: data, criar, remover }
-}
+  const remover = useCallback(async (id: string) => {
+    const { error } = await supabase.from("transacoes").delete().eq("id", id)
+    if (!error) {
+      mutate(SWR_KEYS.transacoes)
+      mutate(SWR_KEYS.contas)
+    }
+  }, [])
 
-export function useFaturas() {
-  const { data = [] } = useSWR<FaturaCartao[]>(SWR_KEYS.faturas, getFaturas)
-
-  const atualizarStatus = useCallback(
-    (id: string, status: "pendente" | "pago") => {
-      updateFaturaStatus(id, status)
-      mutate(SWR_KEYS.faturas)
-    },
-    []
-  )
-
-  return { faturas: data, atualizarStatus }
+  return { transacoes: filtradas, todas: data, criar, remover, isLoading, error }
 }
 
 export function useCategorias() {
-  const { data = [] } = useSWR<Categoria[]>(SWR_KEYS.categorias, getCategorias)
+  const { data = [], error, isLoading } = useSWR<Categoria[]>(SWR_KEYS.categorias, fetchCategorias)
 
   const receita = data.filter((c) => c.tipo === "receita").map((c) => c.nome)
   const despesa = data.filter((c) => c.tipo === "despesa").map((c) => c.nome)
 
-  const criar = useCallback(
-    (cat: { nome: string; tipo: TipoTransacao }) => {
-      addCategoria(cat)
-      mutate(SWR_KEYS.categorias)
-    },
-    []
-  )
-
-  const atualizar = useCallback(
-    (id: string, updates: Partial<Categoria>) => {
-      updateCategoria(id, updates)
-      mutate(SWR_KEYS.categorias)
-    },
-    []
-  )
-
-  const remover = useCallback((id: string) => {
-    deleteCategoria(id)
-    mutate(SWR_KEYS.categorias)
+  const criar = useCallback(async (cat: { nome: string; tipo: TipoTransacao }) => {
+    const { error } = await supabase.from("categorias").insert({
+      nome: cat.nome,
+      tipo: cat.tipo
+      // icone nao mapeado na UI ainda
+    })
+    if (!error) mutate(SWR_KEYS.categorias)
   }, [])
 
-  return { categorias: data, receita, despesa, criar, atualizar, remover }
+  const remover = useCallback(async (id: string) => {
+    const { error } = await supabase.from("categorias").delete().eq("id", id)
+    if (!error) mutate(SWR_KEYS.categorias)
+  }, [])
+
+  const atualizar = useCallback(async (id: string, updates: Partial<Categoria>) => {
+    const { error } = await supabase.from("categorias").update(updates).eq("id", id)
+    if (!error) mutate(SWR_KEYS.categorias)
+  }, [])
+
+  return { categorias: data, receita, despesa, criar, atualizar, remover, isLoading, error }
 }
 
+// Config e Perfil mantidos simples/locais por enquanto ou migrados depois
 export function useConfigUsuario() {
-  const { data = { nomeUsuario: "", moeda: "BRL", formatoData: "dd/mm/yyyy" as const } } =
-    useSWR<ConfigUsuario>(SWR_KEYS.config, getConfig)
-
-  const salvar = useCallback((updates: Partial<ConfigUsuario>) => {
-    updateConfig(updates)
-    mutate(SWR_KEYS.config)
-  }, [])
-
-  return { config: data, salvar }
+  // TODO: Migrar para tabela user_settings
+  // Mock temporario para nao quebrar UI
+  const mockData: ConfigUsuario = { nomeUsuario: "Usuário", moeda: "BRL", formatoData: "dd/mm/yyyy" }
+  return { config: mockData, salvar: () => { } }
 }
 
 export function usePerfil() {
@@ -168,17 +215,12 @@ export function usePerfil() {
   return { perfil, setPerfil }
 }
 
-export function useSeedData() {
-  const [seeded, setSeeded] = useState(false)
+export function useFaturas() {
+  // TODO: Implementar lógica de faturas no backend (View SQL)
+  // Por enquanto retorna vazio para nao quebrar
+  return { faturas: [], atualizarStatus: () => { } }
+}
 
-  useEffect(() => {
-    if (!seeded) {
-      seedDemoData()
-      setSeeded(true)
-      mutate(SWR_KEYS.contas)
-      mutate(SWR_KEYS.cartoes)
-      mutate(SWR_KEYS.transacoes)
-      mutate(SWR_KEYS.faturas)
-    }
-  }, [seeded])
+export function useSeedData() {
+  // Seed deve ser feito no backend ou via script, não no hook cliente
 }
