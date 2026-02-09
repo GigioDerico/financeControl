@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FinControl</string>
+    <string name="title_activity_main">FinControl</string>
+    <string name="package_name">com.fincontrol.app</string>
+    <string name="custom_url_scheme">com.fincontrol.app</string>
+</resources>

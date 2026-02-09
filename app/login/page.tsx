@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { Suspense, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
@@ -25,7 +25,7 @@ const DefaultIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
-export default function LoginPage() {
+function LoginPageInner() {
     const router = useRouter()
     const searchParams = useSearchParams()
     const errorMsg = searchParams.get("error")
@@ -217,5 +217,19 @@ export default function LoginPage() {
                 </div>
             </div>
         </div>
+    )
+}
+
+export default function LoginPage() {
+    return (
+        <Suspense
+            fallback={
+                <div className="flex min-h-screen items-center justify-center bg-background">
+                    <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                </div>
+            }
+        >
+            <LoginPageInner />
+        </Suspense>
     )
 }
