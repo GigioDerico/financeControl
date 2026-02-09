@@ -30,6 +30,7 @@ export interface Transacao {
   parcelas: number
   parcelaAtual: number
   observacoes: string
+  grupoId?: string
 }
 
 export interface FaturaCartao {

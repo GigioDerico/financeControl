@@ -69,11 +69,7 @@ const fetchTransacoes = async (): Promise<Transacao[]> => {
   return (data || []).map((t) => ({
     id: t.id,
     tipo: t.tipo as TipoTransacao,
-    // No DB não temos coluna "origem" (pessoal/empresa) na transação, 
-    // ela deriva da conta/cartão, mas por simplicidade no MVP assumi-se que
-    // o frontend manda ou precisamos inferir. 
-    // Para manter compatibilidade com UI atual, vamos usar um valor default ou buscar da conta/cartao
-    origem: "pessoal", // TODO: Melhorar modelagem para trazer origem da conta/cartao via join
+    origem: (t.origem || "pessoal") as Perfil, // Agora temos a coluna origem no banco
     categoria: t.categorias?.nome || "Outros", // Join com categorias
     valor: t.valor,
     data: t.data,
@@ -82,6 +78,7 @@ const fetchTransacoes = async (): Promise<Transacao[]> => {
     parcelas: t.parcelas_total,
     parcelaAtual: t.parcela_atual,
     observacoes: t.descricao, // DB: descricao -> UI: observacoes (mapeamento reverso)
+    grupoId: t.grupo_id, // Mapeamento do grupo_id
   }))
 }
 
@@ -216,6 +213,7 @@ export function useTransacoes(filtroOrigem?: Perfil | "todas") {
     if (updates.valor !== undefined) payload.valor = updates.valor
     if (updates.data !== undefined) payload.data = updates.data
     if (updates.tipo !== undefined) payload.tipo = updates.tipo
+    if (updates.origem !== undefined) payload.origem = updates.origem
     if (updates.contaId !== undefined) payload.conta_id = updates.contaId
     if (updates.cartaoId !== undefined) payload.cartao_id = updates.cartaoId
 

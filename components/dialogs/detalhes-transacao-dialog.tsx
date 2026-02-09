@@ -6,6 +6,7 @@ import { useTransacoes, useContas, useCartoes, useCategorias } from "@/hooks/use
 import { formatCurrency, formatDate } from "@/lib/store"
 import type { Transacao, TipoTransacao, Perfil } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { createClient } from "@/lib/supabase/client"
 
 interface DetalhesTransacaoDialogProps {
     open: boolean
@@ -18,6 +19,7 @@ export function DetalhesTransacaoDialog({
     onOpenChange,
     transacao,
 }: DetalhesTransacaoDialogProps) {
+    const supabase = createClient()
     const { editar, remover } = useTransacoes()
     const { contas } = useContas()
     const { cartoes } = useCartoes()
@@ -62,19 +64,45 @@ export function DetalhesTransacaoDialog({
         }
     }
 
-    const handleSave = (e: React.FormEvent) => {
+    const handleSave = async (e: React.FormEvent) => {
         e.preventDefault()
 
-        editar(transacao.id, {
-            tipo,
-            // origem: origem, // Origem não é editável diretamente pois vem da conta/cartão na modelagem atual, mas podemos salvar se o backend permitir
-            categoria,
-            valor: Number.parseFloat(valor),
-            data,
-            contaId: usarCartao ? null : contaId || null,
-            cartaoId: usarCartao ? cartaoId || null : null,
-            observacoes
-        })
+        // Se for parcelado (grupo_id existe), editar todas as parcelas do grupo
+        if (transacao.parcelas > 1 && transacao.grupoId) {
+            // Buscar todas as transações do mesmo grupo
+            const { data: grupoTransacoes } = await supabase
+                .from('transacoes')
+                .select('id')
+                .eq('grupo_id', transacao.grupoId)
+
+            // Atualizar todas as parcelas
+            if (grupoTransacoes) {
+                for (const t of grupoTransacoes) {
+                    await editar(t.id, {
+                        tipo,
+                        origem,
+                        categoria,
+                        // NÃO atualizar valor (cada parcela pode ter valor diferente por centavos)
+                        // NÃO atualizar data (cada parcela tem sua data)
+                        contaId: usarCartao ? null : contaId || null,
+                        cartaoId: usarCartao ? cartaoId || null : null,
+                        observacoes
+                    })
+                }
+            }
+        } else {
+            // Edição normal (não parcelado)
+            editar(transacao.id, {
+                tipo,
+                origem,
+                categoria,
+                valor: Number.parseFloat(valor),
+                data,
+                contaId: usarCartao ? null : contaId || null,
+                cartaoId: usarCartao ? cartaoId || null : null,
+                observacoes
+            })
+        }
 
         setIsEditing(false)
         onOpenChange(false)
