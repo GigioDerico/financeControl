@@ -1,10 +1,11 @@
 "use client"
 
 import React from "react"
-
 import { useState } from "react"
 import { X } from "lucide-react"
 import { useCartoes } from "@/hooks/use-financeiro"
+import type { Perfil } from "@/lib/types"
+import { cn } from "@/lib/utils"
 
 interface NovoCartaoDialogProps {
   open: boolean
@@ -18,6 +19,7 @@ export function NovoCartaoDialog({
   const { criar } = useCartoes()
 
   const [nome, setNome] = useState("")
+  const [tipo, setTipo] = useState<Perfil>("pessoal")
   const [banco, setBanco] = useState("")
   const [limite, setLimite] = useState("")
   const [fechamento, setFechamento] = useState("15")
@@ -25,6 +27,7 @@ export function NovoCartaoDialog({
 
   function resetForm() {
     setNome("")
+    setTipo("pessoal")
     setBanco("")
     setLimite("")
     setFechamento("15")
@@ -37,6 +40,7 @@ export function NovoCartaoDialog({
 
     criar({
       nome,
+      tipo,
       banco,
       limite: Number.parseFloat(limite),
       fechamento: Number.parseInt(fechamento),
@@ -91,6 +95,31 @@ export function NovoCartaoDialog({
               className="h-10 w-full rounded-lg border bg-card px-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               required
             />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+              Tipo
+            </label>
+            <div className="flex items-center gap-1 rounded-lg bg-secondary p-1">
+              {(["pessoal", "empresa"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTipo(t)}
+                  className={cn(
+                    "flex-1 rounded-md py-2 text-sm font-medium transition-colors",
+                    tipo === t
+                      ? t === "pessoal"
+                        ? "bg-emerald-600 text-white"
+                        : "bg-blue-600 text-white"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  {t === "pessoal" ? "Pessoal" : "Empresa"}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div>

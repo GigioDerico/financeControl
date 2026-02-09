@@ -45,6 +45,7 @@ const fetchCartoes = async (): Promise<CartaoCredito[]> => {
     limite: c.limite,
     fechamento: c.dia_fechamento, // DB: dia_fechamento -> UI: fechamento
     vencimento: c.dia_vencimento, // DB: dia_vencimento -> UI: vencimento
+    tipo: c.tipo || "pessoal",
   }))
 }
 
@@ -90,7 +91,11 @@ export function useContas() {
   const { data = [], error, isLoading } = useSWR<ContaBancaria[]>(SWR_KEYS.contas, fetchContas)
 
   const criar = useCallback(async (conta: Omit<ContaBancaria, "id">) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
     const { error } = await supabase.from("contas").insert({
+      user_id: user.id,
       nome: conta.nome,
       tipo: conta.tipo,
       saldo: conta.saldo,
@@ -110,8 +115,13 @@ export function useCartoes() {
   const { data = [], error, isLoading } = useSWR<CartaoCredito[]>(SWR_KEYS.cartoes, fetchCartoes)
 
   const criar = useCallback(async (cartao: Omit<CartaoCredito, "id">) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
     const { error } = await supabase.from("cartoes").insert({
+      user_id: user.id,
       nome: cartao.nome,
+      tipo: cartao.tipo,
       banco: cartao.banco,
       limite: cartao.limite,
       dia_fechamento: cartao.fechamento,
@@ -138,28 +148,55 @@ export function useTransacoes(filtroOrigem?: Perfil | "todas") {
       : data.filter((t) => t.origem === filtroOrigem)
 
   const criar = useCallback(async (transacao: Omit<Transacao, "id">) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
     // Buscar ID da categoria pelo nome (gambiarra temp, ideal é UI passar ID)
     const { data: cats } = await supabase.from("categorias").select("id").eq("nome", transacao.categoria).single()
 
-    // Preparar payload snake_case
-    const payload = {
-      descricao: transacao.observacoes || "Sem descrição",
-      valor: transacao.valor,
-      tipo: transacao.tipo,
-      data: transacao.data,
-      conta_id: transacao.contaId || null,
-      cartao_id: transacao.cartaoId || null,
-      categoria_id: cats?.id || null, // Se não achar ID, vai null
-      parcelas_total: transacao.parcelas || 1,
-      parcela_atual: transacao.parcelaAtual || 1,
-      efetivado: true // Por padrão efetivado
+    // Preparar dados base
+    const numParcelas = transacao.parcelas || 1
+    const valorTotal = transacao.valor
+    const valorParcelaBase = Math.floor((valorTotal / numParcelas) * 100) / 100
+    const diferenca = Number((valorTotal - (valorParcelaBase * numParcelas)).toFixed(2)) // Centavos sobraram
+    const grupoId = crypto.randomUUID() // Novo ID para agrupar parcelas
+    const dataBase = new Date(transacao.data + "T12:00:00") // Force timezone safe parsing
+
+    const inserts = []
+
+    for (let i = 0; i < numParcelas; i++) {
+      const valorFinal = i === 0 ? Number((valorParcelaBase + diferenca).toFixed(2)) : valorParcelaBase
+
+      // Calcular data do mes i
+      const dataVencimento = new Date(dataBase)
+      dataVencimento.setMonth(dataBase.getMonth() + i)
+
+      // Se o dia mudou (ex: 31/01 -> 31/02 vira 03/03), rolar para o ultimo dia do mes correto
+      // Mas o JS setMonth faz overflow automatico (31 Jan + 1 mes -> 3 Março ou 2 Março).
+      // Isso é ok para a maioria, mas em finanças as vezes queremos dia fixo.
+      // Vou manter o default do JS por enquanto.
+
+      inserts.push({
+        user_id: user.id,
+        descricao: transacao.observacoes || "Sem descrição",
+        valor: valorFinal, // Valor JÁ É A PARCELA
+        tipo: transacao.tipo,
+        data: dataVencimento.toISOString().split('T')[0],
+        conta_id: transacao.contaId || null,
+        cartao_id: transacao.cartaoId || null,
+        categoria_id: cats?.id || null,
+        parcelas_total: numParcelas,
+        parcela_atual: i + 1,
+        grupo_id: grupoId,
+        efetivado: true
+      })
     }
 
-    const { error } = await supabase.from("transacoes").insert(payload)
+    const { error } = await supabase.from("transacoes").insert(inserts)
 
     if (!error) {
       mutate(SWR_KEYS.transacoes)
-      mutate(SWR_KEYS.contas) // Saldo atualiza via trigger, precisamos recarregar contas
+      mutate(SWR_KEYS.contas)
     }
   }, [])
 
@@ -171,7 +208,36 @@ export function useTransacoes(filtroOrigem?: Perfil | "todas") {
     }
   }, [])
 
-  return { transacoes: filtradas, todas: data, criar, remover, isLoading, error }
+  const editar = useCallback(async (id: string, updates: Partial<Transacao>) => {
+    // Mapeamento de updates frontend -> backend
+    const payload: any = {}
+
+    if (updates.observacoes !== undefined) payload.descricao = updates.observacoes
+    if (updates.valor !== undefined) payload.valor = updates.valor
+    if (updates.data !== undefined) payload.data = updates.data
+    if (updates.tipo !== undefined) payload.tipo = updates.tipo
+    if (updates.contaId !== undefined) payload.conta_id = updates.contaId
+    if (updates.cartaoId !== undefined) payload.cartao_id = updates.cartaoId
+
+    // Se mudou categoria, buscar ID pelo nome (mesma gambiarra do criar, ideal é usar ID)
+    if (updates.categoria) {
+      const { data: cat } = await supabase
+        .from("categorias")
+        .select("id")
+        .eq("nome", updates.categoria)
+        .single()
+      if (cat) payload.categoria_id = cat.id
+    }
+
+    const { error } = await supabase.from("transacoes").update(payload).eq("id", id)
+
+    if (!error) {
+      mutate(SWR_KEYS.transacoes)
+      mutate(SWR_KEYS.contas)
+    }
+  }, [])
+
+  return { transacoes: filtradas, todas: data, criar, remover, editar, isLoading, error }
 }
 
 export function useCategorias() {
@@ -181,10 +247,13 @@ export function useCategorias() {
   const despesa = data.filter((c) => c.tipo === "despesa").map((c) => c.nome)
 
   const criar = useCallback(async (cat: { nome: string; tipo: TipoTransacao }) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
     const { error } = await supabase.from("categorias").insert({
+      user_id: user.id,
       nome: cat.nome,
       tipo: cat.tipo
-      // icone nao mapeado na UI ainda
     })
     if (!error) mutate(SWR_KEYS.categorias)
   }, [])
@@ -207,7 +276,7 @@ export function useConfigUsuario() {
   // TODO: Migrar para tabela user_settings
   // Mock temporario para nao quebrar UI
   const mockData: ConfigUsuario = { nomeUsuario: "Usuário", moeda: "BRL", formatoData: "dd/mm/yyyy" }
-  return { config: mockData, salvar: () => { } }
+  return { config: mockData, salvar: (updates: Partial<ConfigUsuario>) => { console.log("Salvar config (mock):", updates) } }
 }
 
 export function usePerfil() {

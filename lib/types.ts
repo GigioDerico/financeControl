@@ -15,6 +15,7 @@ export interface CartaoCredito {
   limite: number
   fechamento: number
   vencimento: number
+  tipo: Perfil
 }
 
 export interface Transacao {

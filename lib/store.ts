@@ -142,35 +142,24 @@ export function updateFaturaStatus(
 }
 
 export function calcularFaturas(
+  transacoes: Transacao[],
   cartaoId: string,
   mes: number,
   ano: number
 ): { transacoes: Transacao[]; total: number } {
-  const todas = getTransacoes()
-  const transacoesDoCartao = todas.filter((t) => {
+  // Versão simplificada para transacoes materializadas (backend gera N parcelas)
+  const transacoesDoCartao = transacoes.filter((t) => {
     if (t.cartaoId !== cartaoId) return false
-    const dataTransacao = new Date(t.data)
-
-    if (t.parcelas > 1) {
-      const mesInicio = dataTransacao.getMonth()
-      const anoInicio = dataTransacao.getFullYear()
-      const mesesDesdeInicio =
-        (ano - anoInicio) * 12 + (mes - mesInicio)
-      return mesesDesdeInicio >= 0 && mesesDesdeInicio < t.parcelas
-    }
-
-    return (
-      dataTransacao.getMonth() === mes &&
-      dataTransacao.getFullYear() === ano
-    )
+    const d = new Date(t.data)
+    // Ajuste de timezone simples para garantir mes correto
+    // Como data vem YYYY-MM-DD, new Date() assume UTC e converte para local, podendo voltar 1 dia.
+    // Melhor usar split e criar data local ou usar biblioteca.
+    // Mas assumindo que transacao.data é YYYY-MM-DD string:
+    const [y, m, day] = t.data.split('-').map(Number)
+    return m - 1 === mes && y === ano
   })
 
-  const total = transacoesDoCartao.reduce((sum, t) => {
-    if (t.parcelas > 1) {
-      return sum + t.valor / t.parcelas
-    }
-    return sum + t.valor
-  }, 0)
+  const total = transacoesDoCartao.reduce((sum, t) => sum + t.valor, 0)
 
   return { transacoes: transacoesDoCartao, total }
 }
@@ -264,18 +253,21 @@ export function seedDemoData() {
   })
 
   const cartao1 = addCartao({
-    nome: "Nubank Pessoal",
-    banco: "Nubank",
-    limite: 8000,
-    fechamento: 15,
-    vencimento: 25,
+    nome: "Nubank",
+    banco: "Nu Pagamentos",
+    tipo: "pessoal",
+    limite: 15000,
+    fechamento: 5,
+    vencimento: 12,
   })
+
   const cartao2 = addCartao({
-    nome: "Itau Empresarial",
-    banco: "Itau",
-    limite: 20000,
-    fechamento: 10,
-    vencimento: 20,
+    nome: "XP Visa Infinite",
+    banco: "XP Inc",
+    tipo: "pessoal",
+    limite: 50000,
+    fechamento: 1,
+    vencimento: 8,
   })
 
   const now = new Date()

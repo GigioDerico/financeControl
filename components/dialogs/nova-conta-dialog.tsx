@@ -103,8 +103,8 @@ export function NovaContaDialog({
                     "flex-1 rounded-md py-2 text-sm font-medium transition-colors",
                     tipo === t
                       ? t === "pessoal"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-accent text-accent-foreground"
+                        ? "bg-emerald-600 text-white"
+                        : "bg-blue-600 text-white"
                       : "text-muted-foreground"
                   )}
                 >

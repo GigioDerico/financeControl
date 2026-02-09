@@ -1,6 +1,6 @@
 "use client"
 
-import React from "react"
+import React, { useState } from "react"
 
 import {
   TrendingUp,
@@ -12,8 +12,9 @@ import {
 } from "lucide-react"
 import { useContas, useCartoes, useTransacoes } from "@/hooks/use-financeiro"
 import { formatCurrency, formatDate, calcularFaturas } from "@/lib/store"
-import type { Perfil } from "@/lib/types"
+import type { Perfil, Transacao } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { DetalhesTransacaoDialog } from "@/components/dialogs/detalhes-transacao-dialog"
 
 interface DashboardViewProps {
   perfil: Perfil | "todas"
@@ -23,6 +24,7 @@ export function DashboardView({ perfil }: DashboardViewProps) {
   const { contas } = useContas()
   const { cartoes } = useCartoes()
   const { transacoes } = useTransacoes(perfil)
+  const [selectedTransacao, setSelectedTransacao] = useState<Transacao | null>(null)
 
   const contasFiltradas =
     perfil === "todas" ? contas : contas.filter((c) => c.tipo === perfil)
@@ -47,7 +49,7 @@ export function DashboardView({ perfil }: DashboardViewProps) {
     .reduce((s, t) => s + t.valor, 0)
 
   const totalFaturas = cartoes.reduce((sum, c) => {
-    const { total } = calcularFaturas(c.id, mesAtual, anoAtual)
+    const { total } = calcularFaturas(transacoes, c.id, mesAtual, anoAtual)
     return sum + total
   }, 0)
 
@@ -109,8 +111,8 @@ export function DashboardView({ perfil }: DashboardViewProps) {
                     className={cn(
                       "inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
                       conta.tipo === "pessoal"
-                        ? "bg-primary/10 text-primary"
-                        : "bg-accent/10 text-accent"
+                        ? "bg-emerald-600/10 text-emerald-600"
+                        : "bg-blue-600/10 text-blue-600"
                     )}
                   >
                     {conta.tipo}
@@ -139,7 +141,8 @@ export function DashboardView({ perfil }: DashboardViewProps) {
             {recentes.map((t) => (
               <div
                 key={t.id}
-                className="flex items-center gap-3 rounded-xl border bg-card px-4 py-3"
+                onClick={() => setSelectedTransacao(t)}
+                className="flex cursor-pointer items-center gap-3 rounded-xl border bg-card px-4 py-3 transition-colors hover:bg-secondary/50"
               >
                 <div
                   className={cn(
@@ -168,8 +171,8 @@ export function DashboardView({ perfil }: DashboardViewProps) {
                       className={cn(
                         "rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase",
                         t.origem === "pessoal"
-                          ? "bg-primary/10 text-primary"
-                          : "bg-accent/10 text-accent"
+                          ? "bg-emerald-600/10 text-emerald-600"
+                          : "bg-blue-600/10 text-blue-600"
                       )}
                     >
                       {t.origem}
@@ -190,11 +193,18 @@ export function DashboardView({ perfil }: DashboardViewProps) {
           </div>
         )}
       </section>
-    </div>
+
+      <DetalhesTransacaoDialog
+        open={!!selectedTransacao}
+        onOpenChange={(open) => !open && setSelectedTransacao(null)}
+        transacao={selectedTransacao}
+      />
+    </div >
   )
 }
 
 function SummaryCard({
+  // ... (rest of the file)
   label,
   value,
   icon: Icon,

@@ -75,8 +75,8 @@ export function CartoesView({ perfil }: CartoesViewProps) {
                     className={cn(
                       "inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
                       conta.tipo === "pessoal"
-                        ? "bg-primary/10 text-primary"
-                        : "bg-accent/10 text-accent"
+                        ? "bg-emerald-600/10 text-emerald-600"
+                        : "bg-blue-600/10 text-blue-600"
                     )}
                   >
                     {conta.tipo}
@@ -136,9 +136,21 @@ export function CartoesView({ perfil }: CartoesViewProps) {
                         <CreditCard className="h-5 w-5 text-primary" />
                       </div>
                       <div className="flex flex-col gap-0.5">
-                        <span className="text-sm font-medium text-card-foreground">
-                          {cartao.nome}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-card-foreground">
+                            {cartao.nome}
+                          </span>
+                          <span
+                            className={cn(
+                              "inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium uppercase",
+                              cartao.tipo === "pessoal"
+                                ? "bg-emerald-600/10 text-emerald-600"
+                                : "bg-blue-600/10 text-blue-600"
+                            )}
+                          >
+                            {cartao.tipo}
+                          </span>
+                        </div>
                         <span className="text-xs text-muted-foreground">
                           {cartao.banco} | Fecha dia {cartao.fechamento} |
                           Vence dia {cartao.vencimento}
@@ -180,29 +192,15 @@ export function CartoesView({ perfil }: CartoesViewProps) {
                     <div className="border-t px-4 py-3">
                       {meses.map(({ mes, ano, label }) => {
                         const { transacoes: faturaTransacoes, total } =
-                          calcularFaturas(cartao.id, mes, ano)
+                          calcularFaturas(transacoes, cartao.id, mes, ano)
 
                         const pessoalTotal = faturaTransacoes
                           .filter((t) => t.origem === "pessoal")
-                          .reduce((s, t) => {
-                            return (
-                              s +
-                              (t.parcelas > 1
-                                ? t.valor / t.parcelas
-                                : t.valor)
-                            )
-                          }, 0)
+                          .reduce((s, t) => s + t.valor, 0)
 
                         const empresaTotal = faturaTransacoes
                           .filter((t) => t.origem === "empresa")
-                          .reduce((s, t) => {
-                            return (
-                              s +
-                              (t.parcelas > 1
-                                ? t.valor / t.parcelas
-                                : t.valor)
-                            )
-                          }, 0)
+                          .reduce((s, t) => s + t.valor, 0)
 
                         return (
                           <div key={`${mes}-${ano}`} className="mb-3 last:mb-0">
@@ -244,11 +242,7 @@ export function CartoesView({ perfil }: CartoesViewProps) {
                                         ` (parcela ${t.parcelaAtual}/${t.parcelas})`}
                                     </span>
                                     <span className="font-medium text-card-foreground">
-                                      {formatCurrency(
-                                        t.parcelas > 1
-                                          ? t.valor / t.parcelas
-                                          : t.valor
-                                      )}
+                                      {formatCurrency(t.valor)}
                                     </span>
                                   </div>
                                 ))}

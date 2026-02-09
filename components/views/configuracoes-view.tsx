@@ -267,6 +267,100 @@ export function ConfiguracoesView() {
         </div>
       </section>
 
+      {/* Accounts management */}
+      <section className="rounded-xl border bg-card p-5">
+        <h3 className="mb-4 text-sm font-semibold text-card-foreground">
+          Contas Bancarias
+        </h3>
+        {contas.length === 0 ? (
+          <p className="py-4 text-center text-sm text-muted-foreground">
+            Nenhuma conta cadastrada.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {contas.map((conta) => (
+              <div
+                key={conta.id}
+                className="flex items-center justify-between rounded-lg px-3 py-2.5 transition-colors hover:bg-secondary"
+              >
+                <div className="flex items-center gap-3">
+                  <span
+                    className={cn(
+                      "inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium uppercase",
+                      conta.tipo === "pessoal"
+                        ? "bg-emerald-600/10 text-emerald-600"
+                        : "bg-blue-600/10 text-blue-600"
+                    )}
+                  >
+                    {conta.tipo}
+                  </span>
+                  <span className="text-sm text-card-foreground">{conta.nome}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removerConta(conta.id)}
+                  className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                  aria-label={`Remover conta ${conta.nome}`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Cards management */}
+      <section className="rounded-xl border bg-card p-5">
+        <h3 className="mb-4 text-sm font-semibold text-card-foreground">
+          Cartoes de Credito
+        </h3>
+        {cartoes.length === 0 ? (
+          <p className="py-4 text-center text-sm text-muted-foreground">
+            Nenhum cartao cadastrado.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {cartoes.map((cartao) => (
+              <div
+                key={cartao.id}
+                className="flex items-center justify-between rounded-lg px-3 py-2.5 transition-colors hover:bg-secondary"
+              >
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-card-foreground">
+                      {cartao.nome}
+                    </span>
+                    <span
+                      className={cn(
+                        "inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium uppercase",
+                        cartao.tipo === "pessoal"
+                          ? "bg-emerald-600/10 text-emerald-600"
+                          : "bg-blue-600/10 text-blue-600"
+                      )}
+                    >
+                      {cartao.tipo}
+                    </span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {cartao.banco} &middot; Fecha dia {cartao.fechamento} &middot; Vence dia{" "}
+                    {cartao.vencimento}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removerCartao(cartao.id)}
+                  className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                  aria-label={`Remover cartao ${cartao.nome}`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       {/* Account / Session Management */}
       <section className="rounded-xl border border-destructive/20 bg-destructive/5 p-5">
         <h3 className="mb-2 text-sm font-semibold text-destructive">

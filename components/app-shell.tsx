@@ -32,9 +32,14 @@ const tabs = [
   { key: "configuracoes", label: "Config", icon: Settings },
 ] as const
 
+import { useContas, useCartoes } from "@/hooks/use-financeiro"
+
 export function AppShell() {
   const router = useRouter()
   const supabase = createClient()
+
+  const { contas } = useContas()
+  const { cartoes } = useCartoes()
 
   const [activeTab, setActiveTab] = useState<Tab>("dashboard")
   const [perfil, setPerfil] = useState<Perfil>("todas")
@@ -57,6 +62,15 @@ export function AppShell() {
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.push("/login")
+  }
+
+  const handleNovaTransacao = () => {
+    if (contas.length === 0 && cartoes.length === 0) {
+      alert("Você precisa cadastrar uma conta bancária ou cartão de crédito antes de criar uma transação.")
+      setActiveTab("configuracoes")
+      return
+    }
+    setShowNovaTransacao(true)
   }
 
   if (loading) {
@@ -157,7 +171,7 @@ export function AppShell() {
           {activeTab === "transacoes" && (
             <TransacoesView
               perfil={perfil}
-              onNovaTransacao={() => setShowNovaTransacao(true)}
+              onNovaTransacao={handleNovaTransacao}
             />
           )}
           {activeTab === "cartoes" && <CartoesView perfil={perfil} />}
@@ -168,7 +182,7 @@ export function AppShell() {
 
       {/* FAB - Floating Action Button */}
       <button
-        onClick={() => setShowNovaTransacao(true)}
+        onClick={handleNovaTransacao}
         className="fixed bottom-20 right-4 z-50 rounded-full bg-primary p-4 text-primary-foreground shadow-lg transition-all hover:scale-110 active:scale-95 md:bottom-8 md:right-8"
       >
         <Plus className="h-6 w-6" />
