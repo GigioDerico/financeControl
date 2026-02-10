@@ -31,6 +31,7 @@ export interface Transacao {
   parcelaAtual: number
   observacoes: string
   grupoId?: string
+  comprovanteUrl?: string | null
 }
 
 export interface FaturaCartao {

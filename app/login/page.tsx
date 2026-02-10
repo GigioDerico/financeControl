@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
+import { isNative, checkBiometric, getCredentials } from "@/lib/native"
+import { saveCredentials } from "@/lib/native/biometrics"
 
 // Fallback for missing icon
 const DefaultIcon = ({ className }: { className?: string }) => (
@@ -52,7 +54,22 @@ function LoginPageInner() {
                 setErrorMessage(error.message)
                 setLoading(false)
             } else {
-                router.push("/") // Redireciona para home apos login
+                // On native: offer to save credentials for biometric login
+                if (isNative()) {
+                    try {
+                        const status = await checkBiometric()
+                        const existing = await getCredentials()
+                        if (status.available && !existing) {
+                            const wantBio = confirm(
+                                `Deseja ativar o ${status.biometryType === 'face' ? 'Face ID' : 'Touch ID'} para login rápido?`
+                            )
+                            if (wantBio) {
+                                await saveCredentials(email, password)
+                            }
+                        }
+                    } catch { /* ignore biometric errors */ }
+                }
+                router.push("/")
                 router.refresh()
             }
         } else {

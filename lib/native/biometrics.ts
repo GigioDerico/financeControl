@@ -1,6 +1,8 @@
 import { NativeBiometric, BiometryType } from 'capacitor-native-biometric'
 import { isNative } from './platform'
 
+const DEFAULT_SERVER = 'com.fincontrol.app'
+
 export interface BiometricStatus {
     available: boolean
     biometryType: 'face' | 'fingerprint' | 'iris' | 'none'
@@ -51,12 +53,12 @@ export async function authenticate(reason?: string): Promise<boolean> {
     }
 }
 
-export async function saveCredentials(server: string, username: string, password: string) {
+export async function saveCredentials(username: string, password: string, server: string = DEFAULT_SERVER) {
     if (!isNative()) return
     await NativeBiometric.setCredentials({ server, username, password })
 }
 
-export async function getCredentials(server: string) {
+export async function getCredentials(server: string = DEFAULT_SERVER) {
     if (!isNative()) return null
     try {
         return await NativeBiometric.getCredentials({ server })
@@ -65,7 +67,7 @@ export async function getCredentials(server: string) {
     }
 }
 
-export async function deleteCredentials(server: string) {
+export async function deleteCredentials(server: string = DEFAULT_SERVER) {
     if (!isNative()) return
     await NativeBiometric.deleteCredentials({ server })
 }

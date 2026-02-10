@@ -7,6 +7,7 @@ import { X } from "lucide-react"
 import { useTransacoes, useContas, useCartoes, useCategorias } from "@/hooks/use-financeiro"
 import type { TipoTransacao, Perfil } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { ComprovanteCapture } from "@/components/ui/comprovante-capture"
 
 interface NovaTransacaoDialogProps {
   open: boolean
@@ -32,6 +33,7 @@ export function NovaTransacaoDialog({
   const [parcelas, setParcelas] = useState("1")
   const [observacoes, setObservacoes] = useState("")
   const [usarCartao, setUsarCartao] = useState(false)
+  const [comprovanteUrl, setComprovanteUrl] = useState<string | null>(null)
 
   const categorias =
     tipo === "receita" ? categoriasReceita : categoriasDespesa
@@ -47,6 +49,7 @@ export function NovaTransacaoDialog({
     setParcelas("1")
     setObservacoes("")
     setUsarCartao(false)
+    setComprovanteUrl(null)
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -64,6 +67,7 @@ export function NovaTransacaoDialog({
       parcelas: usarCartao ? Number.parseInt(parcelas) || 1 : 1,
       parcelaAtual: 1,
       observacoes,
+      comprovanteUrl,
     })
 
     resetForm()
@@ -269,8 +273,8 @@ export function NovaTransacaoDialog({
                         {n}x
                         {n > 1
                           ? ` de R$ ${(
-                              Number.parseFloat(valor || "0") / n
-                            ).toFixed(2)}`
+                            Number.parseFloat(valor || "0") / n
+                          ).toFixed(2)}`
                           : " (a vista)"}
                       </option>
                     )
@@ -319,6 +323,12 @@ export function NovaTransacaoDialog({
               className="h-10 w-full rounded-lg border bg-card px-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
+
+          {/* Comprovante */}
+          <ComprovanteCapture
+            value={comprovanteUrl}
+            onChange={setComprovanteUrl}
+          />
 
           {/* Submit */}
           <button

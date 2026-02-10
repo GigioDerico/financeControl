@@ -79,6 +79,7 @@ const fetchTransacoes = async (): Promise<Transacao[]> => {
     parcelaAtual: t.parcela_atual,
     observacoes: t.descricao, // DB: descricao -> UI: observacoes (mapeamento reverso)
     grupoId: t.grupo_id, // Mapeamento do grupo_id
+    comprovanteUrl: t.comprovante_url || null,
   }))
 }
 
@@ -185,7 +186,8 @@ export function useTransacoes(filtroOrigem?: Perfil | "todas") {
         parcelas_total: numParcelas,
         parcela_atual: i + 1,
         grupo_id: grupoId,
-        efetivado: true
+        efetivado: true,
+        comprovante_url: i === 0 ? (transacao as any).comprovanteUrl || null : null,
       })
     }
 
@@ -216,6 +218,7 @@ export function useTransacoes(filtroOrigem?: Perfil | "todas") {
     if (updates.origem !== undefined) payload.origem = updates.origem
     if (updates.contaId !== undefined) payload.conta_id = updates.contaId
     if (updates.cartaoId !== undefined) payload.cartao_id = updates.cartaoId
+    if (updates.comprovanteUrl !== undefined) payload.comprovante_url = updates.comprovanteUrl
 
     // Se mudou categoria, buscar ID pelo nome (mesma gambiarra do criar, ideal é usar ID)
     if (updates.categoria) {
