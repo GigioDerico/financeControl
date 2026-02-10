@@ -20,6 +20,8 @@ import { CartoesView } from "@/components/views/cartoes-view"
 import { GraficosView } from "@/components/views/graficos-view"
 import { ConfiguracoesView } from "@/components/views/configuracoes-view"
 import { NovaTransacaoDialog } from "@/components/dialogs/nova-transacao-dialog"
+import { usePushNotifications } from "@/hooks/use-push-notifications"
+import { setDarkStatusBar, isNative } from "@/lib/native"
 
 type Tab = "dashboard" | "transacoes" | "cartoes" | "graficos" | "configuracoes"
 type Perfil = "pessoal" | "empresa" | "todas"
@@ -45,6 +47,16 @@ export function AppShell() {
   const [perfil, setPerfil] = useState<Perfil>("todas")
   const [showNovaTransacao, setShowNovaTransacao] = useState(false)
   const [loading, setLoading] = useState(true)
+
+  // Native: Register push notifications
+  usePushNotifications()
+
+  // Native: Set status bar style
+  useEffect(() => {
+    if (isNative()) {
+      setDarkStatusBar()
+    }
+  }, [])
 
   // Auth Guard
   useEffect(() => {
