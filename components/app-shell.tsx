@@ -21,6 +21,7 @@ import { GraficosView } from "@/components/views/graficos-view"
 import { ConfiguracoesView } from "@/components/views/configuracoes-view"
 import { NovaTransacaoDialog } from "@/components/dialogs/nova-transacao-dialog"
 import { usePushNotifications } from "@/hooks/use-push-notifications"
+import { useNativeLifecycle } from "@/hooks/use-native-lifecycle"
 import { setDarkStatusBar, isNative } from "@/lib/native"
 
 type Tab = "dashboard" | "transacoes" | "cartoes" | "graficos" | "configuracoes"
@@ -50,6 +51,9 @@ export function AppShell() {
 
   // Native: Register push notifications
   usePushNotifications()
+
+  // Native: Handle back button, deep links, app state
+  useNativeLifecycle()
 
   // Native: Set status bar style
   useEffect(() => {
