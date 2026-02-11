@@ -1,22 +1,33 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import {
   ArrowUpRight,
   ArrowDownRight,
   Search,
   Trash2,
   Plus,
+  Layers,
+  CreditCard,
+  ChevronDown,
+  ChevronUp,
+  Wallet,
 } from "lucide-react"
 import { useTransacoes, useContas, useCartoes } from "@/hooks/use-financeiro"
 import { formatCurrency, formatDate } from "@/lib/store"
-import type { Perfil, Transacao } from "@/lib/types"
+import type { Perfil, Transacao, CartaoCredito } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { DetalhesTransacaoDialog } from "@/components/dialogs/detalhes-transacao-dialog"
 
 interface TransacoesViewProps {
   perfil: Perfil | "todas"
   onNovaTransacao: () => void
+}
+
+interface GrupoCartao {
+  cartao: CartaoCredito | null
+  transacoes: Transacao[]
+  total: number
 }
 
 export function TransacoesView({
@@ -31,25 +42,22 @@ export function TransacoesView({
   const [filtroTipo, setFiltroTipo] = useState<
     "todas" | "receita" | "despesa"
   >("todas")
+  const [agruparPorCartao, setAgruparPorCartao] = useState(false)
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
 
-  // Filtro de mês/ano (inicializado com mês atual)
   const hoje = new Date()
   const [mesSelecionado, setMesSelecionado] = useState(hoje.getMonth())
   const [anoSelecionado, setAnoSelecionado] = useState(hoje.getFullYear())
 
   const contaMap = Object.fromEntries(contas.map((c) => [c.id, c.nome]))
   const cartaoMap = Object.fromEntries(cartoes.map((c) => [c.id, c.nome]))
+  const cartaoById = Object.fromEntries(cartoes.map((c) => [c.id, c]))
 
   const filtradas = transacoes
     .filter((t) => {
-      // Filtro de mês/ano
       const [ano, mes] = t.data.split('-').map(Number)
       if (mes - 1 !== mesSelecionado || ano !== anoSelecionado) return false
-
-      // Filtro de tipo
       if (filtroTipo !== "todas" && t.tipo !== filtroTipo) return false
-
-      // Filtro de busca
       if (busca) {
         const lower = busca.toLowerCase()
         return (
@@ -61,7 +69,49 @@ export function TransacoesView({
     })
     .sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime())
 
-  // Navegação de mês
+  // Agrupamento por cartão
+  const grupos = useMemo((): GrupoCartao[] => {
+    if (!agruparPorCartao) return []
+
+    const map = new Map<string, GrupoCartao>()
+
+    for (const t of filtradas) {
+      const key = t.cartaoId || "__sem_cartao__"
+
+      if (!map.has(key)) {
+        map.set(key, {
+          cartao: t.cartaoId ? cartaoById[t.cartaoId] || null : null,
+          transacoes: [],
+          total: 0,
+        })
+      }
+
+      const grupo = map.get(key)!
+      grupo.transacoes.push(t)
+      grupo.total += t.tipo === "despesa" ? t.valor : -t.valor
+    }
+
+    // Ordenar: cartões primeiro (por nome), "sem cartão" por último
+    return Array.from(map.values()).sort((a, b) => {
+      if (!a.cartao && b.cartao) return 1
+      if (a.cartao && !b.cartao) return -1
+      if (a.cartao && b.cartao) return a.cartao.nome.localeCompare(b.cartao.nome)
+      return 0
+    })
+  }, [filtradas, agruparPorCartao, cartaoById])
+
+  function toggleCard(id: string) {
+    setExpandedCards((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
+
   const avancarMes = () => {
     if (mesSelecionado === 11) {
       setMesSelecionado(0)
@@ -84,6 +134,88 @@ export function TransacoesView({
     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
     "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
   ]
+
+  // Componente de item de transação (reutilizado em ambos os modos)
+  function TransacaoItem({ t }: { t: Transacao }) {
+    return (
+      <div
+        onClick={() => setSelectedTransacao(t)}
+        className="flex cursor-pointer items-center gap-3 rounded-xl border bg-card px-4 py-3 transition-colors hover:bg-secondary/50"
+      >
+        <div
+          className={cn(
+            "flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full",
+            t.tipo === "receita" ? "bg-income/10" : "bg-expense/10"
+          )}
+        >
+          {t.tipo === "receita" ? (
+            <ArrowUpRight className="h-4 w-4 text-income" />
+          ) : (
+            <ArrowDownRight className="h-4 w-4 text-expense" />
+          )}
+        </div>
+
+        <div className="flex flex-1 flex-col gap-0.5 min-w-0">
+          <span className="truncate text-sm font-medium text-card-foreground">
+            {t.categoria}
+            {t.observacoes ? ` - ${t.observacoes}` : ""}
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              {formatDate(t.data)}
+            </span>
+            <span
+              className={cn(
+                "rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase",
+                t.origem === "pessoal"
+                  ? "bg-emerald-600/10 text-emerald-600"
+                  : "bg-blue-600/10 text-blue-600"
+              )}
+            >
+              {t.origem}
+            </span>
+            {t.cartaoId && cartaoMap[t.cartaoId] && !agruparPorCartao && (
+              <span className="text-xs text-muted-foreground">
+                {cartaoMap[t.cartaoId]}
+              </span>
+            )}
+            {t.contaId && contaMap[t.contaId] && (
+              <span className="text-xs text-muted-foreground">
+                {contaMap[t.contaId]}
+              </span>
+            )}
+            {t.parcelas > 1 && (
+              <span className="text-xs text-muted-foreground">
+                {t.parcelaAtual}/{t.parcelas}x
+              </span>
+            )}
+          </div>
+        </div>
+
+        <span
+          className={cn(
+            "text-sm font-semibold whitespace-nowrap",
+            t.tipo === "receita" ? "text-income" : "text-expense"
+          )}
+        >
+          {t.tipo === "receita" ? "+" : "-"}
+          {formatCurrency(t.valor)}
+        </span>
+
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            remover(t.id)
+          }}
+          className="flex-shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+          aria-label={`Remover transacao ${t.categoria}`}
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -138,26 +270,46 @@ export function TransacoesView({
             className="h-10 w-full rounded-lg border bg-card pl-9 pr-4 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
-        <div className="flex items-center gap-1 rounded-lg bg-secondary p-1">
-          {(["todas", "receita", "despesa"] as const).map((tipo) => (
-            <button
-              key={tipo}
-              type="button"
-              onClick={() => setFiltroTipo(tipo)}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                filtroTipo === tipo
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {tipo === "todas"
-                ? "Todas"
-                : tipo === "receita"
-                  ? "Receitas"
-                  : "Despesas"}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded-lg bg-secondary p-1">
+            {(["todas", "receita", "despesa"] as const).map((tipo) => (
+              <button
+                key={tipo}
+                type="button"
+                onClick={() => setFiltroTipo(tipo)}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  filtroTipo === tipo
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {tipo === "todas"
+                  ? "Todas"
+                  : tipo === "receita"
+                    ? "Receitas"
+                    : "Despesas"}
+              </button>
+            ))}
+          </div>
+
+          {/* Toggle agrupar por cartão */}
+          <button
+            type="button"
+            onClick={() => {
+              setAgruparPorCartao(!agruparPorCartao)
+              setExpandedCards(new Set())
+            }}
+            className={cn(
+              "flex h-9 w-9 items-center justify-center rounded-lg transition-colors",
+              agruparPorCartao
+                ? "bg-primary text-primary-foreground"
+                : "bg-secondary text-muted-foreground hover:text-foreground"
+            )}
+            title={agruparPorCartao ? "Desagrupar" : "Agrupar por cartão"}
+          >
+            <Layers className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
@@ -168,86 +320,89 @@ export function TransacoesView({
             Nenhuma transacao encontrada.
           </p>
         </div>
+      ) : agruparPorCartao ? (
+        /* === MODO AGRUPADO === */
+        <div className="flex flex-col gap-3">
+          {grupos.map((grupo) => {
+            const groupId = grupo.cartao?.id || "__sem_cartao__"
+            const isExpanded = expandedCards.has(groupId)
+
+            return (
+              <div
+                key={groupId}
+                className="overflow-hidden rounded-xl border bg-card"
+              >
+                {/* Header do grupo */}
+                <button
+                  type="button"
+                  onClick={() => toggleCard(groupId)}
+                  className="flex w-full items-center justify-between p-4 text-left transition-colors hover:bg-secondary/50"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      "flex h-10 w-10 items-center justify-center rounded-lg",
+                      grupo.cartao ? "bg-primary/10" : "bg-secondary"
+                    )}>
+                      {grupo.cartao ? (
+                        <CreditCard className="h-5 w-5 text-primary" />
+                      ) : (
+                        <Wallet className="h-5 w-5 text-muted-foreground" />
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-card-foreground">
+                          {grupo.cartao?.nome || "Sem cartão"}
+                        </span>
+                        {grupo.cartao && (
+                          <span
+                            className={cn(
+                              "rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase",
+                              grupo.cartao.tipo === "pessoal"
+                                ? "bg-emerald-600/10 text-emerald-600"
+                                : "bg-blue-600/10 text-blue-600"
+                            )}
+                          >
+                            {grupo.cartao.tipo}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {grupo.transacoes.length} transaç{grupo.transacoes.length === 1 ? "ão" : "ões"}
+                        {grupo.cartao && ` • Fecha dia ${grupo.cartao.fechamento}`}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-expense">
+                      {formatCurrency(grupo.total)}
+                    </span>
+                    {isExpanded ? (
+                      <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </div>
+                </button>
+
+                {/* Transações expandidas */}
+                {isExpanded && (
+                  <div className="flex flex-col gap-2 border-t px-3 py-3">
+                    {grupo.transacoes.map((t) => (
+                      <TransacaoItem key={t.id} t={t} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
       ) : (
+        /* === MODO LISTA PLANA (original) === */
         <div className="flex flex-col gap-2">
           {filtradas.map((t) => (
-            <div
-              key={t.id}
-              onClick={() => setSelectedTransacao(t)}
-              className="flex cursor-pointer items-center gap-3 rounded-xl border bg-card px-4 py-3 transition-colors hover:bg-secondary/50"
-            >
-              <div
-                className={cn(
-                  "flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full",
-                  t.tipo === "receita" ? "bg-income/10" : "bg-expense/10"
-                )}
-              >
-                {t.tipo === "receita" ? (
-                  <ArrowUpRight className="h-4 w-4 text-income" />
-                ) : (
-                  <ArrowDownRight className="h-4 w-4 text-expense" />
-                )}
-              </div>
-
-              <div className="flex flex-1 flex-col gap-0.5 min-w-0">
-                <span className="truncate text-sm font-medium text-card-foreground">
-                  {t.categoria}
-                  {t.observacoes ? ` - ${t.observacoes}` : ""}
-                </span>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-muted-foreground">
-                    {formatDate(t.data)}
-                  </span>
-                  <span
-                    className={cn(
-                      "rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase",
-                      t.origem === "pessoal"
-                        ? "bg-emerald-600/10 text-emerald-600"
-                        : "bg-blue-600/10 text-blue-600"
-                    )}
-                  >
-                    {t.origem}
-                  </span>
-                  {t.cartaoId && cartaoMap[t.cartaoId] && (
-                    <span className="text-xs text-muted-foreground">
-                      {cartaoMap[t.cartaoId]}
-                    </span>
-                  )}
-                  {t.contaId && contaMap[t.contaId] && (
-                    <span className="text-xs text-muted-foreground">
-                      {contaMap[t.contaId]}
-                    </span>
-                  )}
-                  {t.parcelas > 1 && (
-                    <span className="text-xs text-muted-foreground">
-                      {t.parcelaAtual}/{t.parcelas}x
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <span
-                className={cn(
-                  "text-sm font-semibold whitespace-nowrap",
-                  t.tipo === "receita" ? "text-income" : "text-expense"
-                )}
-              >
-                {t.tipo === "receita" ? "+" : "-"}
-                {formatCurrency(t.valor)}
-              </span>
-
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  remover(t.id)
-                }}
-                className="flex-shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                aria-label={`Remover transacao ${t.categoria}`}
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
+            <TransacaoItem key={t.id} t={t} />
           ))}
         </div>
       )}
