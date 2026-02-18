@@ -3,6 +3,7 @@
 import React from "react"
 import { Fingerprint, Scan, Eye } from "lucide-react"
 import { cn } from "@/lib/utils"
+import Image from "next/image"
 
 interface BiometricLockScreenProps {
     biometryType: string
@@ -28,11 +29,14 @@ export function BiometricLockScreen({
     return (
         <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background">
             {/* Logo */}
-            <div className="mb-8 flex items-center gap-2">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground text-xl font-bold">
-                    $
-                </div>
-                <span className="text-2xl font-bold tracking-tight">FinControl</span>
+            <div className="mb-8 relative h-32 w-64">
+                <Image
+                    src="/logo.png"
+                    alt="FinControl Logo"
+                    fill
+                    className="object-contain"
+                    priority
+                />
             </div>
 
             {/* Biometric prompt */}

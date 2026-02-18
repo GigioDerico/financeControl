@@ -1,6 +1,7 @@
 "use client"
 
 import { Suspense, useState } from "react"
+import Image from "next/image"
 import { useSearchParams, useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
@@ -108,11 +109,14 @@ function LoginPageInner() {
                 {/* Grid Pattern Overlay */}
                 <div className="absolute inset-0 bg-[url('/grid.svg')] bg-center [mask-image:linear-gradient(180deg,white,rgba(255,255,255,0))]" />
 
-                <div className="relative z-20 flex items-center text-lg font-medium tracking-tight">
-                    <div className="mr-2 h-6 w-6 rounded bg-emerald-500 flex items-center justify-center">
-                        <span className="font-bold text-black text-xs">$</span>
-                    </div>
-                    FinControl
+                <div className="relative z-20 flex items-center text-lg font-medium tracking-tight h-20 w-56">
+                    <Image
+                        src="/logo.png"
+                        alt="FinControl Logo"
+                        fill
+                        className="object-contain object-left"
+                        priority
+                    />
                 </div>
 
                 <div className="relative z-20 mt-auto">
@@ -126,8 +130,20 @@ function LoginPageInner() {
             </div>
 
             {/* Form Side (Right) */}
-            <div className="lg:p-8 relative">
+            <div className="p-8 lg:p-8 relative flex items-center justify-center h-full">
                 <div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
+                    {/* Mobile Logo Only */}
+                    <div className="flex justify-center lg:hidden mb-4">
+                        <div className="relative h-16 w-48">
+                            <Image
+                                src="/logo.png"
+                                alt="FinControl Logo"
+                                fill
+                                className="object-contain"
+                                priority
+                            />
+                        </div>
+                    </div>
 
                     <div className="flex flex-col space-y-2 text-center">
                         <h1 className="text-2xl font-semibold tracking-tight">

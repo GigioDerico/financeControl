@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 // import type { Perfil } from "@/lib/types"
+import Image from "next/image"
 import { DashboardView } from "@/components/views/dashboard-view"
 import { TransacoesView } from "@/components/views/transacoes-view"
 import { CartoesView } from "@/components/views/cartoes-view"
@@ -102,11 +103,16 @@ export function AppShell() {
 
       {/* Sidebar (Desktop) */}
       <aside className="fixed bottom-0 left-0 top-0 z-50 hidden w-64 flex-col border-r bg-card p-6 md:flex">
-        <div className="mb-14 flex items-center gap-2 px-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
-            $
+        <div className="mb-14 flex items-center justify-start px-2">
+          <div className="relative h-14 w-48">
+            <Image
+              src="/logo.png"
+              alt="FinControl Logo"
+              fill
+              className="object-contain object-left"
+              priority
+            />
           </div>
-          <span className="text-xl font-bold tracking-tight">FinControl</span>
         </div>
 
         <nav className="flex-1 space-y-1">
@@ -148,11 +154,15 @@ export function AppShell() {
         <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60">
 
           {/* Mobile Logo */}
-          <div className="flex items-center gap-2 md:hidden">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
-              $
+          <div className="flex items-center md:hidden">
+            <div className="relative h-12 w-44">
+              <Image
+                src="/logo.png"
+                alt="FinControl Logo"
+                fill
+                className="object-contain object-left"
+              />
             </div>
-            <span className="font-bold tracking-tight">FinControl</span>
           </div>
 
           <div className="flex items-center gap-4 ml-auto w-full md:w-auto justify-end">
