@@ -89,10 +89,10 @@ O projeto está migrando de uma arquitetura baseada em `localStorage` para uma a
 - [x] Interface de Usuário (UI/UX) Completa
 - [x] Lógica de Negócio Local (Contas, Cartões, Transações)
 - [x] Gráficos e Dashboards
-- [ ] **Configuração do Projeto Supabase (DB + Auth)**
-- [ ] **Migração dos Hooks para Supabase Client**
-- [ ] **Implementação de Autenticação (Login/Cadastro)**
-- [ ] **Sincronização de Dados na Nuvem**
+- [x] **Configuração do Projeto Supabase (DB + Auth)**
+- [x] **Migração dos Hooks para Supabase Client**
+- [x] **Implementação de Autenticação (Login/Cadastro)**
+- [x] **Sincronização de Dados na Nuvem**
 
 ---
 
