@@ -172,13 +172,13 @@ export function GraficosView({ perfil }: GraficosViewProps) {
         <div className="flex-1 rounded-xl border bg-card p-4">
           <span className="text-xs text-muted-foreground">Receitas — {mesesNomes[mesSelecionado]}</span>
           <p className="text-lg font-bold text-income">
-            {formatCurrency(totalReceitas)}
+            +{formatCurrency(totalReceitas)}
           </p>
         </div>
         <div className="flex-1 rounded-xl border bg-card p-4">
           <span className="text-xs text-muted-foreground">Despesas — {mesesNomes[mesSelecionado]}</span>
           <p className="text-lg font-bold text-expense">
-            {formatCurrency(totalDespesas)}
+            -{formatCurrency(totalDespesas)}
           </p>
         </div>
       </div>

@@ -12,7 +12,8 @@ import type {
   Perfil,
   TipoTransacao,
 } from "@/lib/types"
-import { useCallback, useState } from "react"
+import { DEFAULT_CONFIG } from "@/lib/types"
+import { useCallback, useEffect, useState } from "react"
 
 // Chaves de cache SWR
 const SWR_KEYS = {
@@ -80,6 +81,10 @@ const fetchTransacoes = async (): Promise<Transacao[]> => {
     observacoes: t.descricao, // DB: descricao -> UI: observacoes (mapeamento reverso)
     grupoId: t.grupo_id, // Mapeamento do grupo_id
     comprovanteUrl: t.comprovante_url || null,
+    paga: Boolean(t.efetivado),
+    recorrenciaMensal: Boolean(t.recorrente_mensal),
+    recorrenciaAtiva: Boolean(t.recorrencia_ativa),
+    recorrenciaGrupoId: t.recorrencia_grupo_id || null,
   }))
 }
 
@@ -154,16 +159,26 @@ export function useTransacoes(filtroOrigem?: Perfil | "todas") {
 
     // Preparar dados base
     const numParcelas = transacao.parcelas || 1
+    const isRecorrenciaMensal = Boolean(
+      transacao.recorrenciaMensal && !transacao.cartaoId && numParcelas === 1
+    )
+    const recorrenciaGrupoId = isRecorrenciaMensal ? crypto.randomUUID() : null
+    const totalOcorrencias = isRecorrenciaMensal ? 24 : numParcelas
     const valorTotal = transacao.valor
     const valorParcelaBase = Math.floor((valorTotal / numParcelas) * 100) / 100
     const diferenca = Number((valorTotal - (valorParcelaBase * numParcelas)).toFixed(2)) // Centavos sobraram
-    const grupoId = crypto.randomUUID() // Novo ID para agrupar parcelas
+    const grupoId = numParcelas > 1 ? crypto.randomUUID() : null // Novo ID para agrupar parcelas
     const dataBase = new Date(transacao.data + "T12:00:00") // Force timezone safe parsing
 
     const inserts = []
 
-    for (let i = 0; i < numParcelas; i++) {
-      const valorFinal = i === 0 ? Number((valorParcelaBase + diferenca).toFixed(2)) : valorParcelaBase
+    for (let i = 0; i < totalOcorrencias; i++) {
+      const valorFinal =
+        numParcelas > 1
+          ? i === 0
+            ? Number((valorParcelaBase + diferenca).toFixed(2))
+            : valorParcelaBase
+          : valorTotal
 
       // Calcular data do mes i
       const dataVencimento = new Date(dataBase)
@@ -174,21 +189,30 @@ export function useTransacoes(filtroOrigem?: Perfil | "todas") {
       // Isso é ok para a maioria, mas em finanças as vezes queremos dia fixo.
       // Vou manter o default do JS por enquanto.
 
-      inserts.push({
+      const insertItem: any = {
         user_id: user.id,
         descricao: transacao.observacoes || "Sem descrição",
         valor: valorFinal, // Valor JÁ É A PARCELA
         tipo: transacao.tipo,
+        origem: transacao.origem,
         data: dataVencimento.toISOString().split('T')[0],
         conta_id: transacao.contaId || null,
         cartao_id: transacao.cartaoId || null,
         categoria_id: cats?.id || null,
-        parcelas_total: numParcelas,
-        parcela_atual: i + 1,
+        parcelas_total: numParcelas > 1 ? numParcelas : 1,
+        parcela_atual: numParcelas > 1 ? i + 1 : 1,
         grupo_id: grupoId,
-        efetivado: true,
+        efetivado: transacao.paga ?? false,
         comprovante_url: i === 0 ? (transacao as any).comprovanteUrl || null : null,
-      })
+      }
+
+      if (isRecorrenciaMensal) {
+        insertItem.recorrente_mensal = true
+        insertItem.recorrencia_ativa = true
+        insertItem.recorrencia_grupo_id = recorrenciaGrupoId
+      }
+
+      inserts.push(insertItem)
     }
 
     const { error } = await supabase.from("transacoes").insert(inserts)
@@ -219,6 +243,10 @@ export function useTransacoes(filtroOrigem?: Perfil | "todas") {
     if (updates.contaId !== undefined) payload.conta_id = updates.contaId
     if (updates.cartaoId !== undefined) payload.cartao_id = updates.cartaoId
     if (updates.comprovanteUrl !== undefined) payload.comprovante_url = updates.comprovanteUrl
+    if (updates.paga !== undefined) payload.efetivado = updates.paga
+    if (updates.recorrenciaMensal !== undefined) payload.recorrente_mensal = updates.recorrenciaMensal
+    if (updates.recorrenciaAtiva !== undefined) payload.recorrencia_ativa = updates.recorrenciaAtiva
+    if (updates.recorrenciaGrupoId !== undefined) payload.recorrencia_grupo_id = updates.recorrenciaGrupoId
 
     // Se mudou categoria, buscar ID pelo nome (mesma gambiarra do criar, ideal é usar ID)
     if (updates.categoria) {
@@ -238,7 +266,27 @@ export function useTransacoes(filtroOrigem?: Perfil | "todas") {
     }
   }, [])
 
-  return { transacoes: filtradas, todas: data, criar, remover, editar, isLoading, error }
+  const marcarComoPaga = useCallback(async (id: string, paga: boolean) => {
+    const { error } = await supabase.from("transacoes").update({ efetivado: paga }).eq("id", id)
+    if (!error) mutate(SWR_KEYS.transacoes)
+  }, [])
+
+  const revalidarTransacoes = useCallback(() => {
+    mutate(SWR_KEYS.transacoes)
+    mutate(SWR_KEYS.contas)
+  }, [])
+
+  return {
+    transacoes: filtradas,
+    todas: data,
+    criar,
+    remover,
+    editar,
+    marcarComoPaga,
+    revalidarTransacoes,
+    isLoading,
+    error,
+  }
 }
 
 export function useCategorias() {
@@ -274,10 +322,51 @@ export function useCategorias() {
 
 // Config e Perfil mantidos simples/locais por enquanto ou migrados depois
 export function useConfigUsuario() {
-  // TODO: Migrar para tabela user_settings
-  // Mock temporario para nao quebrar UI
-  const mockData: ConfigUsuario = { nomeUsuario: "Usuário", moeda: "BRL", formatoData: "dd/mm/yyyy" }
-  return { config: mockData, salvar: (updates: Partial<ConfigUsuario>) => { console.log("Salvar config (mock):", updates) } }
+  const STORAGE_KEY = "financecontrol:user-config"
+  const [config, setConfig] = useState<ConfigUsuario>(DEFAULT_CONFIG)
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY)
+      if (!raw) return
+
+      const parsed = JSON.parse(raw) as Partial<ConfigUsuario>
+      const formatoData =
+        parsed.formatoData === "dd/mm/yyyy" ||
+        parsed.formatoData === "mm/dd/yyyy" ||
+        parsed.formatoData === "yyyy-mm-dd"
+          ? parsed.formatoData
+          : DEFAULT_CONFIG.formatoData
+
+      setConfig({
+        nomeUsuario: typeof parsed.nomeUsuario === "string" ? parsed.nomeUsuario : DEFAULT_CONFIG.nomeUsuario,
+        moeda: typeof parsed.moeda === "string" ? parsed.moeda : DEFAULT_CONFIG.moeda,
+        formatoData,
+        ocultarContasInicio:
+          typeof parsed.ocultarContasInicio === "boolean"
+            ? parsed.ocultarContasInicio
+            : DEFAULT_CONFIG.ocultarContasInicio,
+      })
+    } catch {
+      // Ignora erros de parse e usa config padrao.
+    }
+  }, [])
+
+  const salvar = useCallback((updates: Partial<ConfigUsuario>) => {
+    setConfig((prev) => {
+      const next = { ...prev, ...updates }
+
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+      }
+
+      return next
+    })
+  }, [])
+
+  return { config, salvar }
 }
 
 export function usePerfil() {

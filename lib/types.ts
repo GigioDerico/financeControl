@@ -32,6 +32,10 @@ export interface Transacao {
   observacoes: string
   grupoId?: string
   comprovanteUrl?: string | null
+  paga?: boolean
+  recorrenciaMensal?: boolean
+  recorrenciaAtiva?: boolean
+  recorrenciaGrupoId?: string | null
 }
 
 export interface FaturaCartao {
@@ -54,6 +58,7 @@ export interface ConfigUsuario {
   nomeUsuario: string
   moeda: string
   formatoData: "dd/mm/yyyy" | "mm/dd/yyyy" | "yyyy-mm-dd"
+  ocultarContasInicio: boolean
 }
 
 export const DEFAULT_CATEGORIAS_RECEITA: Categoria[] = [
@@ -85,4 +90,5 @@ export const DEFAULT_CONFIG: ConfigUsuario = {
   nomeUsuario: "",
   moeda: "BRL",
   formatoData: "dd/mm/yyyy",
+  ocultarContasInicio: false,
 }

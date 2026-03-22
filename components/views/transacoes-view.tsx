@@ -27,6 +27,7 @@ interface TransacoesViewProps {
 }
 
 interface GrupoCartao {
+  id: string
   cartao: CartaoCredito | null
   conta: ContaBancaria | null
   transacoes: Transacao[]
@@ -37,7 +38,7 @@ export function TransacoesView({
   perfil,
   onNovaTransacao,
 }: TransacoesViewProps) {
-  const { transacoes, remover } = useTransacoes(perfil)
+  const { transacoes, remover, marcarComoPaga } = useTransacoes(perfil)
   const { contas } = useContas()
   const { cartoes } = useCartoes()
   const [busca, setBusca] = useState("")
@@ -83,6 +84,13 @@ export function TransacoesView({
     () => filtradas.filter((t) => t.tipo === "despesa").reduce((s, t) => s + t.valor, 0),
     [filtradas]
   )
+  const totalContasPagas = useMemo(
+    () =>
+      filtradas
+        .filter((t) => t.tipo === "despesa" && t.paga)
+        .reduce((s, t) => s + t.valor, 0),
+    [filtradas]
+  )
 
   // Agrupamento por cartão / conta corrente (T5)
   const grupos = useMemo((): GrupoCartao[] => {
@@ -96,6 +104,7 @@ export function TransacoesView({
 
       if (!map.has(key)) {
         map.set(key, {
+          id: key,
           cartao: t.cartaoId ? cartaoById[t.cartaoId] || null : null,
           conta: !t.cartaoId && t.contaId ? contaById[t.contaId] || null : null,
           transacoes: [],
@@ -105,7 +114,7 @@ export function TransacoesView({
 
       const grupo = map.get(key)!
       grupo.transacoes.push(t)
-      grupo.total += t.tipo === "despesa" ? t.valor : -t.valor
+      grupo.total += t.tipo === "receita" ? t.valor : -t.valor
     }
 
     // Ordenar: cartões primeiro (por nome), contas depois, sem vínculo por último
@@ -160,7 +169,10 @@ export function TransacoesView({
     return (
       <div
         onClick={() => setSelectedTransacao(t)}
-        className="flex cursor-pointer items-center gap-3 rounded-xl border bg-card px-4 py-3 transition-colors hover:bg-secondary/50"
+        className={cn(
+          "flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition-colors hover:bg-secondary/50",
+          t.paga ? "border-emerald-300 bg-emerald-50/70" : "bg-card"
+        )}
       >
         <div
           className={cn(
@@ -221,6 +233,19 @@ export function TransacoesView({
           {t.tipo === "receita" ? "+" : "-"}
           {formatCurrency(t.valor)}
         </span>
+
+        <label
+          className="flex flex-shrink-0 items-center gap-1 text-xs text-muted-foreground"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="checkbox"
+            checked={!!t.paga}
+            onChange={(e) => marcarComoPaga(t.id, e.target.checked)}
+            className="h-4 w-4 accent-emerald-600"
+          />
+          Paga
+        </label>
 
         <button
           type="button"
@@ -288,6 +313,10 @@ export function TransacoesView({
           <div className="flex-1 rounded-xl border bg-card p-4">
             <span className="text-xs text-muted-foreground">Despesas do mês</span>
             <p className="mt-0.5 text-base font-bold text-expense">-{formatCurrency(totalDespesas)}</p>
+          </div>
+          <div className="flex-1 rounded-xl border border-emerald-300 bg-emerald-50/70 p-4">
+            <span className="text-xs text-muted-foreground">Contas já pagas</span>
+            <p className="mt-0.5 text-base font-bold text-emerald-700">{formatCurrency(totalContasPagas)}</p>
           </div>
         </div>
         <button
@@ -367,7 +396,7 @@ export function TransacoesView({
         /* === MODO AGRUPADO === */
         <div className="flex flex-col gap-3">
           {grupos.map((grupo) => {
-            const groupId = grupo.cartao?.id || "__sem_cartao__"
+            const groupId = grupo.id
             const isExpanded = expandedCards.has(groupId)
 
             return (
@@ -419,8 +448,14 @@ export function TransacoesView({
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-expense">
-                      {formatCurrency(grupo.total)}
+                    <span
+                      className={cn(
+                        "text-sm font-bold",
+                        grupo.total >= 0 ? "text-income" : "text-expense"
+                      )}
+                    >
+                      {grupo.total >= 0 ? "+" : "-"}
+                      {formatCurrency(Math.abs(grupo.total))}
                     </span>
                     {isExpanded ? (
                       <ChevronUp className="h-4 w-4 text-muted-foreground" />
