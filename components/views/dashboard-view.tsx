@@ -10,7 +10,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
 } from "lucide-react"
-import { useContas, useCartoes, useTransacoes } from "@/hooks/use-financeiro"
+import { useConfigUsuario, useContas, useCartoes, useTransacoes } from "@/hooks/use-financeiro"
 import { formatCurrency, formatDate, calcularFaturas } from "@/lib/store"
 import type { Perfil, Transacao } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -21,6 +21,7 @@ interface DashboardViewProps {
 }
 
 export function DashboardView({ perfil }: DashboardViewProps) {
+  const { config } = useConfigUsuario()
   const { contas } = useContas()
   const { cartoes } = useCartoes()
   const { transacoes } = useTransacoes(perfil)
@@ -53,9 +54,39 @@ export function DashboardView({ perfil }: DashboardViewProps) {
     return sum + total
   }, 0)
 
-  const recentes = [...transacoes]
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const startOfWeek = new Date(today)
+  const day = startOfWeek.getDay()
+  const diffToMonday = day === 0 ? 6 : day - 1
+  startOfWeek.setDate(startOfWeek.getDate() - diffToMonday)
+
+  const endOfWeek = new Date(startOfWeek)
+  endOfWeek.setDate(startOfWeek.getDate() + 6)
+  endOfWeek.setHours(23, 59, 59, 999)
+
+  const transacoesDoDia = transacoes.filter((t) => {
+    const data = new Date(`${t.data}T12:00:00`)
+    return (
+      data.getFullYear() === today.getFullYear() &&
+      data.getMonth() === today.getMonth() &&
+      data.getDate() === today.getDate()
+    )
+  })
+
+  const transacoesDaSemana = transacoes.filter((t) => {
+    const data = new Date(`${t.data}T12:00:00`)
+    return data >= startOfWeek && data <= endOfWeek
+  })
+
+  const contasDoPeriodoBase =
+    transacoesDoDia.length > 0 ? transacoesDoDia : transacoesDaSemana
+  const contasDoPeriodo = [...contasDoPeriodoBase]
     .sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime())
     .slice(0, 8)
+  const tituloContas =
+    transacoesDoDia.length > 0 ? "Contas do Dia" : "Contas da Semana"
 
   return (
     <div className="flex flex-col gap-6">
@@ -69,13 +100,13 @@ export function DashboardView({ perfil }: DashboardViewProps) {
         />
         <SummaryCard
           label="Receitas (mes)"
-          value={formatCurrency(totalReceitas)}
+          value={`+${formatCurrency(totalReceitas)}`}
           icon={TrendingUp}
           variant="income"
         />
         <SummaryCard
           label="Despesas (mes)"
-          value={formatCurrency(totalDespesas)}
+          value={`-${formatCurrency(totalDespesas)}`}
           icon={TrendingDown}
           variant="expense"
         />
@@ -87,62 +118,66 @@ export function DashboardView({ perfil }: DashboardViewProps) {
         />
       </div>
 
-      {/* Accounts */}
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-          Contas Bancarias
-        </h2>
-        {contasFiltradas.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Nenhuma conta cadastrada.
-          </p>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {contasFiltradas.map((conta) => (
-              <div
-                key={conta.id}
-                className="flex items-center justify-between rounded-xl border bg-card p-4"
-              >
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-sm font-medium text-card-foreground">
-                    {conta.nome}
-                  </span>
-                  <span
-                    className={cn(
-                      "inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-                      conta.tipo === "pessoal"
-                        ? "bg-emerald-600/10 text-emerald-600"
-                        : "bg-blue-600/10 text-blue-600"
-                    )}
-                  >
-                    {conta.tipo}
+      {!config.ocultarContasInicio && (
+        <section>
+          <h2 className="mb-3 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+            Contas Bancarias
+          </h2>
+          {contasFiltradas.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Nenhuma conta cadastrada.
+            </p>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {contasFiltradas.map((conta) => (
+                <div
+                  key={conta.id}
+                  className="flex items-center justify-between rounded-xl border bg-card p-4"
+                >
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-sm font-medium text-card-foreground">
+                      {conta.nome}
+                    </span>
+                    <span
+                      className={cn(
+                        "inline-flex w-fit rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+                        conta.tipo === "pessoal"
+                          ? "bg-emerald-600/10 text-emerald-600"
+                          : "bg-blue-600/10 text-blue-600"
+                      )}
+                    >
+                      {conta.tipo}
+                    </span>
+                  </div>
+                  <span className="text-base font-bold text-card-foreground">
+                    {formatCurrency(conta.saldo)}
                   </span>
                 </div>
-                <span className="text-base font-bold text-card-foreground">
-                  {formatCurrency(conta.saldo)}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
-      {/* Recent transactions */}
+      {/* Day/Week bills */}
       <section>
         <h2 className="mb-3 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-          Transacoes Recentes
+          {tituloContas}
         </h2>
-        {recentes.length === 0 ? (
+        {contasDoPeriodo.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Nenhuma transacao encontrada.
+            Nenhuma conta encontrada para o periodo.
           </p>
         ) : (
           <div className="flex flex-col gap-2">
-            {recentes.map((t) => (
+            {contasDoPeriodo.map((t) => (
               <div
                 key={t.id}
                 onClick={() => setSelectedTransacao(t)}
-                className="flex cursor-pointer items-center gap-3 rounded-xl border bg-card px-4 py-3 transition-colors hover:bg-secondary/50"
+                className={cn(
+                  "flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition-colors hover:bg-secondary/50",
+                  t.paga ? "border-emerald-300 bg-emerald-50/70" : "bg-card"
+                )}
               >
                 <div
                   className={cn(
@@ -241,7 +276,18 @@ function SummaryCard({
         </div>
         <span className="text-xs text-muted-foreground">{label}</span>
       </div>
-      <span className="text-lg font-bold text-card-foreground">{value}</span>
+      <span
+        className={cn(
+          "text-lg font-bold",
+          variant === "income"
+            ? "text-income"
+            : variant === "expense"
+              ? "text-expense"
+              : "text-card-foreground"
+        )}
+      >
+        {value}
+      </span>
     </div>
   )
 }

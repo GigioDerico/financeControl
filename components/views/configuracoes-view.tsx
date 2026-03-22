@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Plus, Trash2, Pencil, Check, X, LogOut } from "lucide-react"
@@ -19,6 +19,10 @@ export function ConfiguracoesView() {
   const [editandoId, setEditandoId] = useState<string | null>(null)
   const [editandoNome, setEditandoNome] = useState("")
   const [nomeUsuario, setNomeUsuario] = useState(config.nomeUsuario)
+
+  useEffect(() => {
+    setNomeUsuario(config.nomeUsuario)
+  }, [config.nomeUsuario])
 
   const categoriasFiltradas = categorias.filter((c) => c.tipo === abaCat)
 
@@ -129,6 +133,29 @@ export function ConfiguracoesView() {
               <option value="mm/dd/yyyy">MM/DD/AAAA</option>
               <option value="yyyy-mm-dd">AAAA-MM-DD</option>
             </select>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border bg-card px-3 py-2.5">
+            <div className="flex flex-col">
+              <label
+                htmlFor="ocultarContasInicio"
+                className="text-sm font-medium text-card-foreground"
+              >
+                Ocultar contas na pagina inicial
+              </label>
+              <span className="text-xs text-muted-foreground">
+                Esconde a secao de contas bancarias na home.
+              </span>
+            </div>
+            <input
+              id="ocultarContasInicio"
+              type="checkbox"
+              checked={config.ocultarContasInicio}
+              onChange={(e) =>
+                salvar({ ocultarContasInicio: e.target.checked })
+              }
+              className="h-4 w-4 accent-primary"
+            />
           </div>
         </div>
       </section>

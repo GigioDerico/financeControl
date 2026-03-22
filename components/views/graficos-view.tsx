@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import {
   PieChart,
   Pie,
@@ -37,12 +37,35 @@ export function GraficosView({ perfil }: GraficosViewProps) {
   const { transacoes } = useTransacoes(perfil)
 
   const now = new Date()
-  const mesAtual = now.getMonth()
-  const anoAtual = now.getFullYear()
+  const [mesSelecionado, setMesSelecionado] = useState(now.getMonth())
+  const [anoSelecionado, setAnoSelecionado] = useState(now.getFullYear())
+
+  const mesesNomes = [
+    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+  ]
+
+  const avancarMes = () => {
+    if (mesSelecionado === 11) {
+      setMesSelecionado(0)
+      setAnoSelecionado((a) => a + 1)
+    } else {
+      setMesSelecionado((m) => m + 1)
+    }
+  }
+
+  const voltarMes = () => {
+    if (mesSelecionado === 0) {
+      setMesSelecionado(11)
+      setAnoSelecionado((a) => a - 1)
+    } else {
+      setMesSelecionado((m) => m - 1)
+    }
+  }
 
   const transacoesMes = transacoes.filter((t) => {
-    const d = new Date(t.data)
-    return d.getMonth() === mesAtual && d.getFullYear() === anoAtual
+    const [y, m] = t.data.split('-').map(Number)
+    return m - 1 === mesSelecionado && y === anoSelecionado
   })
 
   // Category breakdown (expenses only)
@@ -58,12 +81,12 @@ export function GraficosView({ perfil }: GraficosViewProps) {
       .sort((a, b) => b.value - a.value)
   }, [transacoesMes])
 
-  // Monthly trends (last 6 months)
+  // Monthly trends (6 months ending at selected month)
   const monthlyData = useMemo(() => {
     const months: { name: string; receitas: number; despesas: number }[] = []
     for (let i = 5; i >= 0; i--) {
-      let m = mesAtual - i
-      let y = anoAtual
+      let m = mesSelecionado - i
+      let y = anoSelecionado
       if (m < 0) {
         m += 12
         y -= 1
@@ -72,8 +95,8 @@ export function GraficosView({ perfil }: GraficosViewProps) {
         month: "short",
       })
       const monthTx = transacoes.filter((t) => {
-        const d = new Date(t.data)
-        return d.getMonth() === m && d.getFullYear() === y
+        const [ty, tm] = t.data.split('-').map(Number)
+        return tm - 1 === m && ty === y
       })
       months.push({
         name: monthName,
@@ -86,7 +109,7 @@ export function GraficosView({ perfil }: GraficosViewProps) {
       })
     }
     return months
-  }, [transacoes, mesAtual, anoAtual])
+  }, [transacoes, mesSelecionado, anoSelecionado])
 
   // Personal vs Business
   const origemData = useMemo(() => {
@@ -111,22 +134,51 @@ export function GraficosView({ perfil }: GraficosViewProps) {
 
   return (
     <div className="flex flex-col gap-6">
-      <h2 className="text-lg font-bold text-foreground">
-        Graficos e Analises
-      </h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold text-foreground">Gráficos e Análises</h2>
+      </div>
+
+      {/* Navegador de mês — T4 */}
+      <div className="flex items-center justify-between rounded-xl border bg-card px-4 py-3">
+        <button
+          type="button"
+          onClick={voltarMes}
+          className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-secondary"
+          aria-label="Mês anterior"
+        >
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <div className="text-center">
+          <p className="text-sm font-semibold text-card-foreground">
+            {mesesNomes[mesSelecionado]} {anoSelecionado}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={avancarMes}
+          className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-secondary"
+          aria-label="Próximo mês"
+        >
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      </div>
 
       {/* Summary bar */}
       <div className="flex gap-4">
         <div className="flex-1 rounded-xl border bg-card p-4">
-          <span className="text-xs text-muted-foreground">Receitas do mes</span>
+          <span className="text-xs text-muted-foreground">Receitas — {mesesNomes[mesSelecionado]}</span>
           <p className="text-lg font-bold text-income">
-            {formatCurrency(totalReceitas)}
+            +{formatCurrency(totalReceitas)}
           </p>
         </div>
         <div className="flex-1 rounded-xl border bg-card p-4">
-          <span className="text-xs text-muted-foreground">Despesas do mes</span>
+          <span className="text-xs text-muted-foreground">Despesas — {mesesNomes[mesSelecionado]}</span>
           <p className="text-lg font-bold text-expense">
-            {formatCurrency(totalDespesas)}
+            -{formatCurrency(totalDespesas)}
           </p>
         </div>
       </div>
@@ -134,7 +186,7 @@ export function GraficosView({ perfil }: GraficosViewProps) {
       {/* Monthly trends */}
       <div className="rounded-xl border bg-card p-4">
         <h3 className="mb-4 text-sm font-semibold text-card-foreground">
-          Receitas vs Despesas (6 meses)
+          Receitas vs Despesas (6 meses até {mesesNomes[mesSelecionado]})
         </h3>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">

@@ -8,6 +8,30 @@ import type { Transacao, TipoTransacao, Perfil } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
 
+function formatBRLFromDigits(value: string) {
+    const digits = value.replace(/\D/g, "")
+    const cents = Number(digits || "0")
+    return new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+    }).format(cents / 100)
+}
+
+function formatBRLFromNumber(value: number) {
+    return new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+    }).format(value)
+}
+
+function parseBRLToNumber(value: string) {
+    const normalized = value
+        .replace(/[^\d,]/g, "")
+        .replace(/\./g, "")
+        .replace(",", ".")
+    return Number.parseFloat(normalized || "0")
+}
+
 interface DetalhesTransacaoDialogProps {
     open: boolean
     onOpenChange: (open: boolean) => void
@@ -20,7 +44,7 @@ export function DetalhesTransacaoDialog({
     transacao,
 }: DetalhesTransacaoDialogProps) {
     const supabase = createClient()
-    const { editar, remover } = useTransacoes()
+    const { editar, remover, revalidarTransacoes } = useTransacoes()
     const { contas } = useContas()
     const { cartoes } = useCartoes()
     const { receita: categoriasReceita, despesa: categoriasDespesa } = useCategorias()
@@ -31,26 +55,28 @@ export function DetalhesTransacaoDialog({
     const [tipo, setTipo] = useState<TipoTransacao>("despesa")
     const [origem, setOrigem] = useState<Perfil>("pessoal")
     const [categoria, setCategoria] = useState("")
-    const [valor, setValor] = useState("")
+    const [valor, setValor] = useState("R$ 0,00")
     const [data, setData] = useState("")
     const [contaId, setContaId] = useState("")
     const [cartaoId, setCartaoId] = useState("")
     const [parcelas, setParcelas] = useState("1")
     const [observacoes, setObservacoes] = useState("")
     const [usarCartao, setUsarCartao] = useState(false)
+    const [recorrenciaMensal, setRecorrenciaMensal] = useState(false)
 
     useEffect(() => {
         if (transacao && open) {
             setTipo(transacao.tipo)
             setOrigem(transacao.origem || "pessoal")
             setCategoria(transacao.categoria)
-            setValor(transacao.valor.toString())
+            setValor(formatBRLFromNumber(transacao.valor))
             setData(transacao.data.slice(0, 10))
             setContaId(transacao.contaId || "")
             setCartaoId(transacao.cartaoId || "")
             setParcelas(transacao.parcelas.toString())
             setObservacoes(transacao.observacoes || "")
             setUsarCartao(!!transacao.cartaoId)
+            setRecorrenciaMensal(Boolean(transacao.recorrenciaMensal && transacao.recorrenciaAtiva))
             setIsEditing(false)
         }
     }, [transacao, open])
@@ -66,6 +92,19 @@ export function DetalhesTransacaoDialog({
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault()
+        if (usarCartao && !cartaoId) return
+        if (!usarCartao && !contaId) return
+        const valorNumero = parseBRLToNumber(valor)
+        const atualizaBase = {
+            tipo,
+            origem,
+            categoria,
+            valor: valorNumero,
+            data,
+            contaId: usarCartao ? null : contaId || null,
+            cartaoId: usarCartao ? cartaoId || null : null,
+            observacoes,
+        }
 
         // Se for parcelado (grupo_id existe), editar todas as parcelas do grupo
         if (transacao.parcelas > 1 && transacao.grupoId) {
@@ -90,18 +129,89 @@ export function DetalhesTransacaoDialog({
                     })
                 }
             }
+            revalidarTransacoes()
         } else {
-            // Edição normal (não parcelado)
-            editar(transacao.id, {
-                tipo,
-                origem,
-                categoria,
-                valor: Number.parseFloat(valor),
-                data,
-                contaId: usarCartao ? null : contaId || null,
-                cartaoId: usarCartao ? cartaoId || null : null,
-                observacoes
-            })
+            const recorrenciaAtivaAntes = Boolean(transacao.recorrenciaMensal && transacao.recorrenciaAtiva)
+            const recorrenciaGrupoId = transacao.recorrenciaGrupoId || crypto.randomUUID()
+            const querRecorrencia = !usarCartao && recorrenciaMensal
+
+            if (querRecorrencia) {
+                await editar(transacao.id, {
+                    ...atualizaBase,
+                    recorrenciaMensal: true,
+                    recorrenciaAtiva: true,
+                    recorrenciaGrupoId,
+                })
+
+                // Se acabou de ativar recorrencia, gera 23 meses futuros.
+                if (!recorrenciaAtivaAntes) {
+                    const { data: authData } = await supabase.auth.getUser()
+                    if (authData.user) {
+                        const { data: cat } = await supabase
+                            .from("categorias")
+                            .select("id")
+                            .eq("nome", categoria)
+                            .single()
+
+                        const baseDate = new Date(`${data}T12:00:00`)
+                        const inserts = []
+
+                        for (let i = 1; i < 24; i++) {
+                            const dataVencimento = new Date(baseDate)
+                            dataVencimento.setMonth(baseDate.getMonth() + i)
+
+                            inserts.push({
+                                user_id: authData.user.id,
+                                descricao: observacoes || "Sem descrição",
+                                valor: valorNumero,
+                                tipo,
+                                origem,
+                                data: dataVencimento.toISOString().split("T")[0],
+                                conta_id: contaId || null,
+                                cartao_id: null,
+                                categoria_id: cat?.id || null,
+                                parcelas_total: 1,
+                                parcela_atual: 1,
+                                grupo_id: null,
+                                efetivado: false,
+                                recorrente_mensal: true,
+                                recorrencia_ativa: true,
+                                recorrencia_grupo_id: recorrenciaGrupoId,
+                            })
+                        }
+
+                        if (inserts.length > 0) {
+                            await supabase.from("transacoes").insert(inserts)
+                        }
+                    }
+                }
+            } else {
+                const payloadSemRecorrencia = recorrenciaAtivaAntes
+                    ? {
+                        ...atualizaBase,
+                        recorrenciaMensal: false,
+                        recorrenciaAtiva: false,
+                        recorrenciaGrupoId: null,
+                    }
+                    : atualizaBase
+
+                await editar(transacao.id, payloadSemRecorrencia)
+
+                // Se estava recorrente antes e foi desativada, remove próximas ocorrências.
+                if (recorrenciaAtivaAntes && transacao.recorrenciaGrupoId) {
+                    await supabase
+                        .from("transacoes")
+                        .delete()
+                        .eq("recorrencia_grupo_id", transacao.recorrenciaGrupoId)
+                        .gt("data", data)
+
+                    await supabase
+                        .from("transacoes")
+                        .update({ recorrencia_ativa: false })
+                        .eq("recorrencia_grupo_id", transacao.recorrenciaGrupoId)
+                }
+            }
+            revalidarTransacoes()
         }
 
         setIsEditing(false)
@@ -219,10 +329,10 @@ export function DetalhesTransacaoDialog({
                             <div>
                                 <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Valor (R$)</label>
                                 <input
-                                    type="number"
-                                    step="0.01"
+                                    type="text"
+                                    inputMode="numeric"
                                     value={valor}
-                                    onChange={(e) => setValor(e.target.value)}
+                                    onChange={(e) => setValor(formatBRLFromDigits(e.target.value))}
                                     className="h-10 w-full rounded-lg border bg-card px-3 text-sm text-card-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                                     required
                                 />
@@ -245,12 +355,30 @@ export function DetalhesTransacaoDialog({
                                 <input
                                     type="checkbox"
                                     checked={usarCartao}
-                                    onChange={(e) => setUsarCartao(e.target.checked)}
+                                    onChange={(e) => {
+                                        const checked = e.target.checked
+                                        setUsarCartao(checked)
+                                        if (checked) setRecorrenciaMensal(false)
+                                    }}
                                     className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
                                 />
                                 Pagar com cartao de credito
                             </label>
                         </div>
+
+                        {!usarCartao && (
+                            <div className="flex items-center gap-3">
+                                <label className="flex cursor-pointer items-center gap-2 text-sm text-card-foreground">
+                                    <input
+                                        type="checkbox"
+                                        checked={recorrenciaMensal}
+                                        onChange={(e) => setRecorrenciaMensal(e.target.checked)}
+                                        className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                                    />
+                                    Recorrencia mensal
+                                </label>
+                            </div>
+                        )}
 
                         {usarCartao ? (
                             <div>
@@ -259,6 +387,7 @@ export function DetalhesTransacaoDialog({
                                     value={cartaoId}
                                     onChange={(e) => setCartaoId(e.target.value)}
                                     className="h-10 w-full rounded-lg border bg-card px-3 text-sm text-card-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                    required
                                 >
                                     <option value="">Selecione...</option>
                                     {cartoes.map((c) => (
@@ -273,6 +402,7 @@ export function DetalhesTransacaoDialog({
                                     value={contaId}
                                     onChange={(e) => setContaId(e.target.value)}
                                     className="h-10 w-full rounded-lg border bg-card px-3 text-sm text-card-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                    required
                                 >
                                     <option value="">Selecione...</option>
                                     {contas.map((c) => (

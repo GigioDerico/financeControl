@@ -9,6 +9,23 @@ import type { TipoTransacao, Perfil } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { ComprovanteCapture } from "@/components/ui/comprovante-capture"
 
+function formatBRLFromDigits(value: string) {
+  const digits = value.replace(/\D/g, "")
+  const cents = Number(digits || "0")
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(cents / 100)
+}
+
+function parseBRLToNumber(value: string) {
+  const normalized = value
+    .replace(/[^\d,]/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".")
+  return Number.parseFloat(normalized || "0")
+}
+
 interface NovaTransacaoDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -26,7 +43,7 @@ export function NovaTransacaoDialog({
   const [tipo, setTipo] = useState<TipoTransacao>("despesa")
   const [origem, setOrigem] = useState<Perfil>("pessoal")
   const [categoria, setCategoria] = useState("")
-  const [valor, setValor] = useState("")
+  const [valor, setValor] = useState("R$ 0,00")
   const [data, setData] = useState(new Date().toISOString().slice(0, 10))
   const [contaId, setContaId] = useState("")
   const [cartaoId, setCartaoId] = useState("")
@@ -34,6 +51,7 @@ export function NovaTransacaoDialog({
   const [observacoes, setObservacoes] = useState("")
   const [usarCartao, setUsarCartao] = useState(false)
   const [comprovanteUrl, setComprovanteUrl] = useState<string | null>(null)
+  const [recorrenciaMensal, setRecorrenciaMensal] = useState(false)
 
   const categorias =
     tipo === "receita" ? categoriasReceita : categoriasDespesa
@@ -42,7 +60,7 @@ export function NovaTransacaoDialog({
     setTipo("despesa")
     setOrigem("pessoal")
     setCategoria("")
-    setValor("")
+    setValor("R$ 0,00")
     setData(new Date().toISOString().slice(0, 10))
     setContaId("")
     setCartaoId("")
@@ -50,17 +68,23 @@ export function NovaTransacaoDialog({
     setObservacoes("")
     setUsarCartao(false)
     setComprovanteUrl(null)
+    setRecorrenciaMensal(false)
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!categoria || !valor || !data) return
+    if (!categoria || !data) return
+    if (usarCartao && !cartaoId) return
+    if (!usarCartao && !contaId) return
+
+    const valorNumerico = parseBRLToNumber(valor)
+    if (!Number.isFinite(valorNumerico) || valorNumerico <= 0) return
 
     criar({
       tipo,
       origem,
       categoria,
-      valor: Number.parseFloat(valor),
+      valor: valorNumerico,
       data,
       contaId: usarCartao ? null : contaId || null,
       cartaoId: usarCartao ? cartaoId || null : null,
@@ -68,6 +92,7 @@ export function NovaTransacaoDialog({
       parcelaAtual: 1,
       observacoes,
       comprovanteUrl,
+      recorrenciaMensal: !usarCartao && recorrenciaMensal,
     })
 
     resetForm()
@@ -189,12 +214,11 @@ export function NovaTransacaoDialog({
               </label>
               <input
                 id="valor"
-                type="number"
-                min="0.01"
-                step="0.01"
+                type="text"
+                inputMode="numeric"
                 value={valor}
-                onChange={(e) => setValor(e.target.value)}
-                placeholder="0,00"
+                onChange={(e) => setValor(formatBRLFromDigits(e.target.value))}
+                placeholder="R$ 0,00"
                 className="h-10 w-full rounded-lg border bg-card px-3 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 required
               />
@@ -223,12 +247,30 @@ export function NovaTransacaoDialog({
               <input
                 type="checkbox"
                 checked={usarCartao}
-                onChange={(e) => setUsarCartao(e.target.checked)}
+                onChange={(e) => {
+                  const checked = e.target.checked
+                  setUsarCartao(checked)
+                  if (checked) setRecorrenciaMensal(false)
+                }}
                 className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
               />
               Pagar com cartao de credito
             </label>
           </div>
+
+          {!usarCartao && (
+            <div className="flex items-center gap-3">
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-card-foreground">
+                <input
+                  type="checkbox"
+                  checked={recorrenciaMensal}
+                  onChange={(e) => setRecorrenciaMensal(e.target.checked)}
+                  className="h-4 w-4 rounded border-border text-primary focus:ring-ring"
+                />
+                Recorrencia mensal
+              </label>
+            </div>
+          )}
 
           {/* Conta ou Cartao */}
           {usarCartao ? (
@@ -245,6 +287,7 @@ export function NovaTransacaoDialog({
                   value={cartaoId}
                   onChange={(e) => setCartaoId(e.target.value)}
                   className="h-10 w-full rounded-lg border bg-card px-3 text-sm text-card-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  required
                 >
                   <option value="">Selecione...</option>
                   {cartoes.map((c) => (
@@ -273,7 +316,7 @@ export function NovaTransacaoDialog({
                         {n}x
                         {n > 1
                           ? ` de R$ ${(
-                            Number.parseFloat(valor || "0") / n
+                            parseBRLToNumber(valor) / n
                           ).toFixed(2)}`
                           : " (a vista)"}
                       </option>
@@ -295,8 +338,9 @@ export function NovaTransacaoDialog({
                 value={contaId}
                 onChange={(e) => setContaId(e.target.value)}
                 className="h-10 w-full rounded-lg border bg-card px-3 text-sm text-card-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                required
               >
-                <option value="">Nenhuma (sem vincular)</option>
+                <option value="">Selecione...</option>
                 {contas.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.nome} ({c.tipo})
