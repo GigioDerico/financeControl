@@ -12,10 +12,12 @@ import {
   ChevronDown,
   ChevronUp,
   Wallet,
+  Eye,
+  EyeOff,
 } from "lucide-react"
 import { useTransacoes, useContas, useCartoes } from "@/hooks/use-financeiro"
 import { formatCurrency, formatDate } from "@/lib/store"
-import type { Perfil, Transacao, CartaoCredito } from "@/lib/types"
+import type { Perfil, Transacao, CartaoCredito, ContaBancaria } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { DetalhesTransacaoDialog } from "@/components/dialogs/detalhes-transacao-dialog"
 
@@ -25,7 +27,9 @@ interface TransacoesViewProps {
 }
 
 interface GrupoCartao {
+  id: string
   cartao: CartaoCredito | null
+  conta: ContaBancaria | null
   transacoes: Transacao[]
   total: number
 }
@@ -34,7 +38,7 @@ export function TransacoesView({
   perfil,
   onNovaTransacao,
 }: TransacoesViewProps) {
-  const { transacoes, remover } = useTransacoes(perfil)
+  const { transacoes, remover, marcarComoPaga } = useTransacoes(perfil)
   const { contas } = useContas()
   const { cartoes } = useCartoes()
   const [busca, setBusca] = useState("")
@@ -44,6 +48,7 @@ export function TransacoesView({
   >("todas")
   const [agruparPorCartao, setAgruparPorCartao] = useState(false)
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
+  const [mostrarSomas, setMostrarSomas] = useState(true)
 
   const hoje = new Date()
   const [mesSelecionado, setMesSelecionado] = useState(hoje.getMonth())
@@ -52,6 +57,7 @@ export function TransacoesView({
   const contaMap = Object.fromEntries(contas.map((c) => [c.id, c.nome]))
   const cartaoMap = Object.fromEntries(cartoes.map((c) => [c.id, c.nome]))
   const cartaoById = Object.fromEntries(cartoes.map((c) => [c.id, c]))
+  const contaById = Object.fromEntries(contas.map((c) => [c.id, c]))
 
   const filtradas = transacoes
     .filter((t) => {
@@ -69,18 +75,38 @@ export function TransacoesView({
     })
     .sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime())
 
-  // Agrupamento por cartão
+  // Totais do mês filtrado (T1)
+  const totalReceitas = useMemo(
+    () => filtradas.filter((t) => t.tipo === "receita").reduce((s, t) => s + t.valor, 0),
+    [filtradas]
+  )
+  const totalDespesas = useMemo(
+    () => filtradas.filter((t) => t.tipo === "despesa").reduce((s, t) => s + t.valor, 0),
+    [filtradas]
+  )
+  const totalContasPagas = useMemo(
+    () =>
+      filtradas
+        .filter((t) => t.tipo === "despesa" && t.paga)
+        .reduce((s, t) => s + t.valor, 0),
+    [filtradas]
+  )
+
+  // Agrupamento por cartão / conta corrente (T5)
   const grupos = useMemo((): GrupoCartao[] => {
     if (!agruparPorCartao) return []
 
     const map = new Map<string, GrupoCartao>()
 
     for (const t of filtradas) {
-      const key = t.cartaoId || "__sem_cartao__"
+      // Se tem cartão: agrupa por cartão. Se não tem cartão: agrupa por conta corrente.
+      const key = t.cartaoId ? `cartao__${t.cartaoId}` : t.contaId ? `conta__${t.contaId}` : "__sem_vinculo__"
 
       if (!map.has(key)) {
         map.set(key, {
+          id: key,
           cartao: t.cartaoId ? cartaoById[t.cartaoId] || null : null,
+          conta: !t.cartaoId && t.contaId ? contaById[t.contaId] || null : null,
           transacoes: [],
           total: 0,
         })
@@ -88,17 +114,20 @@ export function TransacoesView({
 
       const grupo = map.get(key)!
       grupo.transacoes.push(t)
-      grupo.total += t.tipo === "despesa" ? t.valor : -t.valor
+      grupo.total += t.tipo === "receita" ? t.valor : -t.valor
     }
 
-    // Ordenar: cartões primeiro (por nome), "sem cartão" por último
+    // Ordenar: cartões primeiro (por nome), contas depois, sem vínculo por último
     return Array.from(map.values()).sort((a, b) => {
-      if (!a.cartao && b.cartao) return 1
       if (a.cartao && !b.cartao) return -1
+      if (!a.cartao && b.cartao) return 1
       if (a.cartao && b.cartao) return a.cartao.nome.localeCompare(b.cartao.nome)
+      if (a.conta && b.conta) return a.conta.nome.localeCompare(b.conta.nome)
+      if (a.conta && !b.conta) return -1
+      if (!a.conta && b.conta) return 1
       return 0
     })
-  }, [filtradas, agruparPorCartao, cartaoById])
+  }, [filtradas, agruparPorCartao, cartaoById, contaById])
 
   function toggleCard(id: string) {
     setExpandedCards((prev) => {
@@ -140,7 +169,10 @@ export function TransacoesView({
     return (
       <div
         onClick={() => setSelectedTransacao(t)}
-        className="flex cursor-pointer items-center gap-3 rounded-xl border bg-card px-4 py-3 transition-colors hover:bg-secondary/50"
+        className={cn(
+          "flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition-colors hover:bg-secondary/50",
+          t.paga ? "border-emerald-300 bg-emerald-50/70" : "bg-card"
+        )}
       >
         <div
           className={cn(
@@ -202,6 +234,19 @@ export function TransacoesView({
           {formatCurrency(t.valor)}
         </span>
 
+        <label
+          className="flex flex-shrink-0 items-center gap-1 text-xs text-muted-foreground"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="checkbox"
+            checked={!!t.paga}
+            onChange={(e) => marcarComoPaga(t.id, e.target.checked)}
+            className="h-4 w-4 accent-emerald-600"
+          />
+          Paga
+        </label>
+
         <button
           type="button"
           onClick={(e) => {
@@ -255,6 +300,33 @@ export function TransacoesView({
           <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
+        </button>
+      </div>
+
+      {/* Cards de soma — T1 + T2 */}
+      <div className="flex items-center gap-2">
+        <div className={cn("flex flex-1 gap-3 transition-all", !mostrarSomas && "invisible h-0 overflow-hidden")}>
+          <div className="flex-1 rounded-xl border bg-card p-4">
+            <span className="text-xs text-muted-foreground">Receitas do mês</span>
+            <p className="mt-0.5 text-base font-bold text-income">+{formatCurrency(totalReceitas)}</p>
+          </div>
+          <div className="flex-1 rounded-xl border bg-card p-4">
+            <span className="text-xs text-muted-foreground">Despesas do mês</span>
+            <p className="mt-0.5 text-base font-bold text-expense">-{formatCurrency(totalDespesas)}</p>
+          </div>
+          <div className="flex-1 rounded-xl border border-emerald-300 bg-emerald-50/70 p-4">
+            <span className="text-xs text-muted-foreground">Contas já pagas</span>
+            <p className="mt-0.5 text-base font-bold text-emerald-700">{formatCurrency(totalContasPagas)}</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setMostrarSomas(!mostrarSomas)}
+          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-secondary text-muted-foreground transition-colors hover:text-foreground"
+          title={mostrarSomas ? "Ocultar somas" : "Exibir somas"}
+          aria-label={mostrarSomas ? "Ocultar somas" : "Exibir somas"}
+        >
+          {mostrarSomas ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </button>
       </div>
 
@@ -324,7 +396,7 @@ export function TransacoesView({
         /* === MODO AGRUPADO === */
         <div className="flex flex-col gap-3">
           {grupos.map((grupo) => {
-            const groupId = grupo.cartao?.id || "__sem_cartao__"
+            const groupId = grupo.id
             const isExpanded = expandedCards.has(groupId)
 
             return (
@@ -352,31 +424,38 @@ export function TransacoesView({
                     <div className="flex flex-col gap-0.5">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-card-foreground">
-                          {grupo.cartao?.nome || "Sem cartão"}
+                          {grupo.cartao?.nome ?? grupo.conta?.nome ?? "Sem vínculo"}
                         </span>
-                        {grupo.cartao && (
+                        {(grupo.cartao || grupo.conta) && (
                           <span
                             className={cn(
                               "rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase",
-                              grupo.cartao.tipo === "pessoal"
+                              (grupo.cartao?.tipo ?? grupo.conta?.tipo) === "pessoal"
                                 ? "bg-emerald-600/10 text-emerald-600"
                                 : "bg-blue-600/10 text-blue-600"
                             )}
                           >
-                            {grupo.cartao.tipo}
+                            {grupo.cartao?.tipo ?? grupo.conta?.tipo}
                           </span>
                         )}
                       </div>
                       <span className="text-xs text-muted-foreground">
                         {grupo.transacoes.length} transaç{grupo.transacoes.length === 1 ? "ão" : "ões"}
                         {grupo.cartao && ` • Fecha dia ${grupo.cartao.fechamento}`}
+                        {grupo.conta && ` • Conta Corrente`}
                       </span>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-expense">
-                      {formatCurrency(grupo.total)}
+                    <span
+                      className={cn(
+                        "text-sm font-bold",
+                        grupo.total >= 0 ? "text-income" : "text-expense"
+                      )}
+                    >
+                      {grupo.total >= 0 ? "+" : "-"}
+                      {formatCurrency(Math.abs(grupo.total))}
                     </span>
                     {isExpanded ? (
                       <ChevronUp className="h-4 w-4 text-muted-foreground" />
