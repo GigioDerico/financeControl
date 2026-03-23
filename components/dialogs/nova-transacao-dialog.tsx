@@ -71,7 +71,7 @@ export function NovaTransacaoDialog({
     setRecorrenciaMensal(false)
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!categoria || !data) return
     if (usarCartao && !cartaoId) return
@@ -80,23 +80,29 @@ export function NovaTransacaoDialog({
     const valorNumerico = parseBRLToNumber(valor)
     if (!Number.isFinite(valorNumerico) || valorNumerico <= 0) return
 
-    criar({
-      tipo,
-      origem,
-      categoria,
-      valor: valorNumerico,
-      data,
-      contaId: usarCartao ? null : contaId || null,
-      cartaoId: usarCartao ? cartaoId || null : null,
-      parcelas: usarCartao ? Number.parseInt(parcelas) || 1 : 1,
-      parcelaAtual: 1,
-      observacoes,
-      comprovanteUrl,
-      recorrenciaMensal: !usarCartao && recorrenciaMensal,
-    })
+    try {
+      await criar({
+        tipo,
+        origem,
+        categoria,
+        valor: valorNumerico,
+        data,
+        contaId: usarCartao ? null : contaId || null,
+        cartaoId: usarCartao ? cartaoId || null : null,
+        parcelas: usarCartao ? Number.parseInt(parcelas) || 1 : 1,
+        parcelaAtual: 1,
+        observacoes,
+        comprovanteUrl,
+        recorrenciaMensal: !usarCartao && recorrenciaMensal,
+      })
 
-    resetForm()
-    onOpenChange(false)
+      resetForm()
+      onOpenChange(false)
+    } catch (error) {
+      console.error("Erro ao criar transacao:", error)
+      const message = error instanceof Error ? error.message : "erro desconhecido"
+      alert(`Nao foi possivel criar a transacao: ${message}`)
+    }
   }
 
   if (!open) return null
