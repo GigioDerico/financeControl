@@ -26,6 +26,121 @@ const SWR_KEYS = {
 
 // Cliente Supabase
 const supabase = createClient()
+const RECORRENCIA_MESES_FUTUROS = 12
+let suporteRecorrenciaCache: boolean | null = null
+let expansaoRecorrenciaEmAndamento = false
+
+async function suportaColunasRecorrencia(): Promise<boolean> {
+  if (suporteRecorrenciaCache !== null) return suporteRecorrenciaCache
+
+  const { error } = await supabase
+    .from("transacoes")
+    .select("id,recorrente_mensal,recorrencia_ativa,recorrencia_grupo_id")
+    .limit(1)
+
+  suporteRecorrenciaCache = !error
+  return suporteRecorrenciaCache
+}
+
+function parseDateSafe(date: string): Date {
+  return new Date(`${date}T12:00:00`)
+}
+
+function formatDateISO(date: Date): string {
+  return date.toISOString().split("T")[0]
+}
+
+async function expandirRecorrenciasMensaisSeNecessario(transacoes: Transacao[]) {
+  if (expansaoRecorrenciaEmAndamento || transacoes.length === 0) return
+  expansaoRecorrenciaEmAndamento = true
+
+  try {
+    const recorrenciaDisponivel = await suportaColunasRecorrencia()
+    if (!recorrenciaDisponivel) return
+
+    const { data: authData } = await supabase.auth.getUser()
+    if (!authData.user) return
+
+    const recorrentesAtivas = transacoes.filter(
+      (t) => t.recorrenciaMensal && t.recorrenciaAtiva && t.recorrenciaGrupoId
+    )
+    if (recorrentesAtivas.length === 0) return
+
+    const grupos = new Map<string, Transacao[]>()
+    for (const t of recorrentesAtivas) {
+      const key = t.recorrenciaGrupoId!
+      if (!grupos.has(key)) grupos.set(key, [])
+      grupos.get(key)!.push(t)
+    }
+
+    const hoje = new Date()
+    hoje.setHours(0, 0, 0, 0)
+
+    const inserts: any[] = []
+
+    for (const [grupoId, items] of grupos.entries()) {
+      const ordenadas = [...items].sort(
+        (a, b) => parseDateSafe(a.data).getTime() - parseDateSafe(b.data).getTime()
+      )
+      const ultima = ordenadas[ordenadas.length - 1]
+      const datasExistentes = new Set(ordenadas.map((t) => t.data))
+
+      const futuras = ordenadas.filter((t) => parseDateSafe(t.data) > hoje).length
+      // Só expande quando a janela recorrente está acabando.
+      if (futuras > 1) continue
+
+      const { data: cat } = await supabase
+        .from("categorias")
+        .select("id")
+        .eq("nome", ultima.categoria)
+        .single()
+
+      let cursor = parseDateSafe(ultima.data)
+      let adicionadas = 0
+      let guard = 0
+      while (adicionadas < RECORRENCIA_MESES_FUTUROS && guard < 120) {
+        guard += 1
+        cursor = new Date(cursor)
+        cursor.setMonth(cursor.getMonth() + 1)
+        const proximaData = formatDateISO(cursor)
+
+        if (datasExistentes.has(proximaData)) continue
+        datasExistentes.add(proximaData)
+        adicionadas += 1
+
+        inserts.push({
+          user_id: authData.user.id,
+          descricao: ultima.observacoes || "Sem descrição",
+          valor: ultima.valor,
+          tipo: ultima.tipo,
+          origem: ultima.origem,
+          data: proximaData,
+          conta_id: ultima.contaId || null,
+          cartao_id: null,
+          categoria_id: cat?.id || null,
+          parcelas_total: 1,
+          parcela_atual: 1,
+          grupo_id: null,
+          efetivado: false,
+          recorrente_mensal: true,
+          recorrencia_ativa: true,
+          recorrencia_grupo_id: grupoId,
+          comprovante_url: null,
+        })
+      }
+    }
+
+    if (inserts.length === 0) return
+
+    const { error } = await supabase.from("transacoes").insert(inserts)
+    if (!error) {
+      mutate(SWR_KEYS.transacoes)
+      mutate(SWR_KEYS.contas)
+    }
+  } finally {
+    expansaoRecorrenciaEmAndamento = false
+  }
+}
 
 // --- Fetchers (Mapeiam snake_case do DB para camelCase da UI) ---
 
@@ -150,9 +265,13 @@ export function useTransacoes(filtroOrigem?: Perfil | "todas") {
       ? data
       : data.filter((t) => t.origem === filtroOrigem)
 
+  useEffect(() => {
+    expandirRecorrenciasMensaisSeNecessario(data)
+  }, [data])
+
   const criar = useCallback(async (transacao: Omit<Transacao, "id">) => {
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+    if (!user) throw new Error("Usuario nao autenticado")
 
     // Buscar ID da categoria pelo nome (gambiarra temp, ideal é UI passar ID)
     const { data: cats } = await supabase.from("categorias").select("id").eq("nome", transacao.categoria).single()
@@ -160,10 +279,12 @@ export function useTransacoes(filtroOrigem?: Perfil | "todas") {
     // Preparar dados base
     const numParcelas = transacao.parcelas || 1
     const isRecorrenciaMensal = Boolean(
-      transacao.recorrenciaMensal && !transacao.cartaoId && numParcelas === 1
+      transacao.recorrenciaMensal &&
+      !transacao.cartaoId &&
+      numParcelas === 1
     )
     const recorrenciaGrupoId = isRecorrenciaMensal ? crypto.randomUUID() : null
-    const totalOcorrencias = isRecorrenciaMensal ? 24 : numParcelas
+    const totalOcorrencias = isRecorrenciaMensal ? RECORRENCIA_MESES_FUTUROS + 1 : numParcelas
     const valorTotal = transacao.valor
     const valorParcelaBase = Math.floor((valorTotal / numParcelas) * 100) / 100
     const diferenca = Number((valorTotal - (valorParcelaBase * numParcelas)).toFixed(2)) // Centavos sobraram
@@ -202,7 +323,7 @@ export function useTransacoes(filtroOrigem?: Perfil | "todas") {
         parcelas_total: numParcelas > 1 ? numParcelas : 1,
         parcela_atual: numParcelas > 1 ? i + 1 : 1,
         grupo_id: grupoId,
-        efetivado: transacao.paga ?? false,
+        efetivado: isRecorrenciaMensal ? (i === 0 ? transacao.paga ?? false : false) : transacao.paga ?? false,
         comprovante_url: i === 0 ? (transacao as any).comprovanteUrl || null : null,
       }
 
@@ -216,11 +337,10 @@ export function useTransacoes(filtroOrigem?: Perfil | "todas") {
     }
 
     const { error } = await supabase.from("transacoes").insert(inserts)
+    if (error) throw error
 
-    if (!error) {
-      mutate(SWR_KEYS.transacoes)
-      mutate(SWR_KEYS.contas)
-    }
+    mutate(SWR_KEYS.transacoes)
+    mutate(SWR_KEYS.contas)
   }, [])
 
   const remover = useCallback(async (id: string) => {
@@ -259,11 +379,10 @@ export function useTransacoes(filtroOrigem?: Perfil | "todas") {
     }
 
     const { error } = await supabase.from("transacoes").update(payload).eq("id", id)
+    if (error) throw error
 
-    if (!error) {
-      mutate(SWR_KEYS.transacoes)
-      mutate(SWR_KEYS.contas)
-    }
+    mutate(SWR_KEYS.transacoes)
+    mutate(SWR_KEYS.contas)
   }, [])
 
   const marcarComoPaga = useCallback(async (id: string, paga: boolean) => {

@@ -92,59 +92,65 @@ export function DetalhesTransacaoDialog({
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (usarCartao && !cartaoId) return
-        if (!usarCartao && !contaId) return
-        const valorNumero = parseBRLToNumber(valor)
-        const atualizaBase = {
-            tipo,
-            origem,
-            categoria,
-            valor: valorNumero,
-            data,
-            contaId: usarCartao ? null : contaId || null,
-            cartaoId: usarCartao ? cartaoId || null : null,
-            observacoes,
-        }
+        try {
+            if (usarCartao && !cartaoId) return
+            if (!usarCartao && !contaId) return
 
-        // Se for parcelado (grupo_id existe), editar todas as parcelas do grupo
-        if (transacao.parcelas > 1 && transacao.grupoId) {
-            // Buscar todas as transações do mesmo grupo
-            const { data: grupoTransacoes } = await supabase
-                .from('transacoes')
-                .select('id')
-                .eq('grupo_id', transacao.grupoId)
-
-            // Atualizar todas as parcelas
-            if (grupoTransacoes) {
-                for (const t of grupoTransacoes) {
-                    await editar(t.id, {
-                        tipo,
-                        origem,
-                        categoria,
-                        // NÃO atualizar valor (cada parcela pode ter valor diferente por centavos)
-                        // NÃO atualizar data (cada parcela tem sua data)
-                        contaId: usarCartao ? null : contaId || null,
-                        cartaoId: usarCartao ? cartaoId || null : null,
-                        observacoes
-                    })
-                }
+            const valorNumero = parseBRLToNumber(valor)
+            const atualizaBase = {
+                tipo,
+                origem,
+                categoria,
+                valor: valorNumero,
+                data,
+                contaId: usarCartao ? null : contaId || null,
+                cartaoId: usarCartao ? cartaoId || null : null,
+                observacoes,
             }
-            revalidarTransacoes()
-        } else {
-            const recorrenciaAtivaAntes = Boolean(transacao.recorrenciaMensal && transacao.recorrenciaAtiva)
-            const recorrenciaGrupoId = transacao.recorrenciaGrupoId || crypto.randomUUID()
-            const querRecorrencia = !usarCartao && recorrenciaMensal
 
-            if (querRecorrencia) {
-                await editar(transacao.id, {
-                    ...atualizaBase,
-                    recorrenciaMensal: true,
-                    recorrenciaAtiva: true,
-                    recorrenciaGrupoId,
-                })
+            const { error: recorrenciaColsError } = await supabase
+                .from("transacoes")
+                .select("id,recorrente_mensal,recorrencia_ativa,recorrencia_grupo_id")
+                .limit(1)
+            const recorrenciaDisponivel = !recorrenciaColsError
 
-                // Se acabou de ativar recorrencia, gera 23 meses futuros.
-                if (!recorrenciaAtivaAntes) {
+            // Se for parcelado (grupo_id existe), editar todas as parcelas do grupo
+            if (transacao.parcelas > 1 && transacao.grupoId) {
+                // Buscar todas as transações do mesmo grupo
+                const { data: grupoTransacoes } = await supabase
+                    .from('transacoes')
+                    .select('id')
+                    .eq('grupo_id', transacao.grupoId)
+
+                // Atualizar todas as parcelas
+                if (grupoTransacoes) {
+                    for (const t of grupoTransacoes) {
+                        await editar(t.id, {
+                            tipo,
+                            origem,
+                            categoria,
+                            // NÃO atualizar valor (cada parcela pode ter valor diferente por centavos)
+                            // NÃO atualizar data (cada parcela tem sua data)
+                            contaId: usarCartao ? null : contaId || null,
+                            cartaoId: usarCartao ? cartaoId || null : null,
+                            observacoes
+                        })
+                    }
+                }
+                revalidarTransacoes()
+            } else {
+                const recorrenciaAtivaAntes = Boolean(transacao.recorrenciaMensal && transacao.recorrenciaAtiva)
+                const recorrenciaGrupoId = transacao.recorrenciaGrupoId || crypto.randomUUID()
+                const querRecorrencia = !usarCartao && recorrenciaMensal && recorrenciaDisponivel
+
+                if (querRecorrencia) {
+                    await editar(transacao.id, {
+                        ...atualizaBase,
+                        recorrenciaMensal: true,
+                        recorrenciaAtiva: true,
+                        recorrenciaGrupoId,
+                    })
+
                     const { data: authData } = await supabase.auth.getUser()
                     if (authData.user) {
                         const { data: cat } = await supabase
@@ -153,12 +159,26 @@ export function DetalhesTransacaoDialog({
                             .eq("nome", categoria)
                             .single()
 
-                        const baseDate = new Date(`${data}T12:00:00`)
-                        const inserts = []
+                        const { data: existentes } = await supabase
+                            .from("transacoes")
+                            .select("data")
+                            .eq("recorrencia_grupo_id", recorrenciaGrupoId)
 
-                        for (let i = 1; i < 24; i++) {
+                        const datasExistentes = new Set(
+                            (existentes || []).map((e: any) => e.data as string)
+                        )
+
+                        const baseDate = new Date(`${data}T12:00:00`)
+                        const inserts: any[] = []
+
+                        // Garante janela de 12 meses futuros para essa serie.
+                        for (let i = 1; i <= 12; i++) {
                             const dataVencimento = new Date(baseDate)
                             dataVencimento.setMonth(baseDate.getMonth() + i)
+                            const dataIso = dataVencimento.toISOString().split("T")[0]
+
+                            if (datasExistentes.has(dataIso)) continue
+                            datasExistentes.add(dataIso)
 
                             inserts.push({
                                 user_id: authData.user.id,
@@ -166,7 +186,7 @@ export function DetalhesTransacaoDialog({
                                 valor: valorNumero,
                                 tipo,
                                 origem,
-                                data: dataVencimento.toISOString().split("T")[0],
+                                data: dataIso,
                                 conta_id: contaId || null,
                                 cartao_id: null,
                                 categoria_id: cat?.id || null,
@@ -181,41 +201,50 @@ export function DetalhesTransacaoDialog({
                         }
 
                         if (inserts.length > 0) {
-                            await supabase.from("transacoes").insert(inserts)
+                            const { error: insertError } = await supabase.from("transacoes").insert(inserts)
+                            if (insertError) throw insertError
                         }
                     }
-                }
-            } else {
-                const payloadSemRecorrencia = recorrenciaAtivaAntes
-                    ? {
-                        ...atualizaBase,
-                        recorrenciaMensal: false,
-                        recorrenciaAtiva: false,
-                        recorrenciaGrupoId: null,
+                } else {
+                    if (recorrenciaMensal && !recorrenciaDisponivel) {
+                        alert("Recorrencia mensal indisponivel no banco. Aplique a migration de recorrencia para ativar esse recurso.")
                     }
-                    : atualizaBase
 
-                await editar(transacao.id, payloadSemRecorrencia)
+                    const payloadSemRecorrencia = recorrenciaAtivaAntes
+                        ? {
+                            ...atualizaBase,
+                            recorrenciaMensal: false,
+                            recorrenciaAtiva: false,
+                            recorrenciaGrupoId: null,
+                        }
+                        : atualizaBase
 
-                // Se estava recorrente antes e foi desativada, remove próximas ocorrências.
-                if (recorrenciaAtivaAntes && transacao.recorrenciaGrupoId) {
-                    await supabase
-                        .from("transacoes")
-                        .delete()
-                        .eq("recorrencia_grupo_id", transacao.recorrenciaGrupoId)
-                        .gt("data", data)
+                    await editar(transacao.id, payloadSemRecorrencia)
 
-                    await supabase
-                        .from("transacoes")
-                        .update({ recorrencia_ativa: false })
-                        .eq("recorrencia_grupo_id", transacao.recorrenciaGrupoId)
+                    // Se estava recorrente antes e foi desativada, remove próximas ocorrências.
+                    if (recorrenciaAtivaAntes && transacao.recorrenciaGrupoId) {
+                        await supabase
+                            .from("transacoes")
+                            .delete()
+                            .eq("recorrencia_grupo_id", transacao.recorrenciaGrupoId)
+                            .gt("data", data)
+
+                        await supabase
+                            .from("transacoes")
+                            .update({ recorrencia_ativa: false })
+                            .eq("recorrencia_grupo_id", transacao.recorrenciaGrupoId)
+                    }
                 }
+                revalidarTransacoes()
             }
-            revalidarTransacoes()
-        }
 
-        setIsEditing(false)
-        onOpenChange(false)
+            setIsEditing(false)
+            onOpenChange(false)
+        } catch (error) {
+            console.error("Erro ao salvar transacao:", error)
+            const message = error instanceof Error ? error.message : "erro desconhecido"
+            alert(`Nao foi possivel salvar a transacao: ${message}`)
+        }
     }
 
     const categorias = tipo === "receita" ? categoriasReceita : categoriasDespesa
